@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en" class="is-booting">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f3f1e9" />
+    <meta name="description" content="Plan focused time and manage habits, health, nutrition, training, and finances in one private daily dashboard." />
+    <meta name="application-name" content="tempo" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="tempo" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <title>tempo</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/styles.css?v=98" />
+  </head>
+  <body>
+    <div class="offline-banner" role="status">Tempo is offline. New changes are paused until you reconnect and reload.</div>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#home" data-view-link="timersView" aria-label="Tempo home">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>tempo</span>
+        </a>
+        <nav class="app-nav" id="mainNavigation" aria-label="Page tabs">
+          <a href="#home" data-view-link="timersView" aria-current="page">Home</a>
+          <a href="#nutrition" data-view-link="foodLogView">Nutrition</a>
+          <a href="#strength" data-view-link="strengthView">Strength</a>
+          <a href="#cardio" data-view-link="cardioView">Cardio</a>
+          <a href="#sleep" data-view-link="sleepView">Sleep</a>
+          <a href="#finances" data-view-link="financesView">Finances</a>
+        </nav>
+        <div class="header-actions">
+          <a class="settings-button" href="#settings" data-view-link="settingsView" aria-label="Settings" title="Settings">
+            <i data-lucide="settings" aria-hidden="true">⚙</i>
+          </a>
+        </div>
+      </header>
+
+      <main id="pagePager" aria-label="Swipe left or right to change page tabs">
+        <section id="timersView" class="view active" aria-labelledby="habitsHeading">
+          <section class="weekly-panel" aria-labelledby="weeklyHeading">
+            <div class="weekly-copy">
+              <p class="eyebrow">THIS WEEK</p>
+              <div class="heading-with-tooltip">
+                <h2 id="weeklyHeading">Momentum</h2>
+                <span class="info-tooltip"><button type="button" aria-label="About Momentum"><i data-lucide="info" aria-hidden="true">i</i></button><span role="tooltip">Your daily score is the average progress across habits, nutrition goals, cardio, and sleep.</span></span>
+              </div>
+              <div class="momentum-tabs" id="momentumTabs" role="tablist" aria-label="Momentum category">
+                <button type="button" role="tab" data-momentum-filter="all" aria-selected="true">All</button>
+                <button type="button" role="tab" data-momentum-filter="habits" aria-selected="false">Habits</button>
+                <button type="button" role="tab" data-momentum-filter="nutrition" aria-selected="false" hidden>Nutrition</button>
+                <button type="button" role="tab" data-momentum-filter="cardio" aria-selected="false" hidden>Cardio</button>
+                <button type="button" role="tab" data-momentum-filter="sleep" aria-selected="false" hidden>Sleep</button>
+              </div>
+            </div>
+            <div class="weekly-chart-column">
+              <div class="momentum-nutrient-legend" id="momentumNutrientLegend" aria-label="Nutrition bar colors" hidden>
+                <span style="--nutrient-color:#ec5f3e"><i></i>Calories</span>
+                <span style="--nutrient-color:#d6941f"><i></i>Carbs</span>
+                <span style="--nutrient-color:#6558d3"><i></i>Protein</span>
+                <span style="--nutrient-color:#d94f8a"><i></i>Fats</span>
+                <span style="--nutrient-color:#16a085"><i></i>Fibre</span>
+              </div>
+              <div class="momentum-cardio-summary" id="momentumCardioSummary" hidden>
+                <div class="momentum-zone2-progress" id="momentumCardioZone2" hidden><span><span>Zone 2 this week</span><strong id="momentumCardioProgress">0 / 0 min</strong></span><i role="progressbar" aria-label="Weekly Zone 2 cardio goal" aria-valuemin="0"><b id="momentumCardioProgressFill"></b></i></div>
+              </div>
+              <div class="momentum-sleep-summary" id="momentumSleepSummary" hidden><span><i class="sleep-duration-key"></i>Duration</span><span><i class="sleep-bedtime-key"></i>Bedtime met</span><strong id="momentumSleepProgress">0 / 0 nights</strong></div>
+              <div class="weekly-chart" id="weeklyChart" aria-label="Daily completion scores from Sunday through Saturday"></div>
+            </div>
+          </section>
+          <div class="daily-progress-panel">
+            <div class="daily-progress-heading">
+              <p class="progress-history-date" id="progressDateLabel" hidden></p>
+              <h2>Daily progress</h2>
+              <div class="progress-tabs" role="tablist" aria-label="Progress summary">
+                <button id="habitProgressTab" type="button" role="tab" aria-selected="true">Habits</button>
+                <button id="nutritionProgressTab" type="button" role="tab" aria-selected="false">Nutrition</button>
+              </div>
+            </div>
+            <div class="rings-visual">
+              <canvas id="dailyRings" width="240" height="240" role="img" aria-label="Nested rings showing daily goal progress"></canvas>
+              <div class="rings-center"><strong id="goalsReached">0/0</strong><span>GOALS</span></div>
+              <div class="ring-tooltip" id="ringTooltip" role="tooltip" hidden></div>
+            </div>
+            <div class="rings-summary">
+              <div class="rings-legend" id="ringsLegend"></div>
+              <div class="progress-metrics">
+                <div><span>TODAY’S SCORE</span><strong id="progressSpent">0%</strong></div>
+                <div><span>GOALS DONE</span><strong id="progressGoal">0/0</strong></div>
+                <div><span id="progressRemainingLabel">HABITS REMAINING</span><strong id="scheduledTimeRemaining">0</strong></div>
+                <div><span id="dayRemainingLabel">DAY REMAINING</span><strong id="dayTimeLeft">0m</strong></div>
+              </div>
+            </div>
+          </div>
+          <div class="section-heading habit-heading">
+            <div>
+              <h2 id="habitsHeading">Today’s habits</h2>
+              <p id="habitSummary">Add a counter or toggle to start tracking.</p>
+            </div>
+            <div class="section-heading-actions">
+              <button class="secondary-button section-add-button" id="newTimerButton" type="button"><i data-lucide="plus" aria-hidden="true">+</i>New timer</button>
+              <button class="secondary-button section-add-button" id="newHabitButton" type="button"><i data-lucide="plus" aria-hidden="true">+</i>New habit</button>
+            </div>
+          </div>
+          <div class="timer-grid" id="timerGrid"></div>
+          <div class="habit-grid" id="habitGrid"></div>
+
+        </section>
+
+        <section id="foodLogView" class="view" aria-labelledby="foodLogHeading">
+          <div class="page-heading nutrition-page-heading">
+            <div><h1 id="foodLogHeading">Nutrition</h1></div>
+            <div class="nutrition-heading-actions"><button class="secondary-button" id="openFoodLibraryButton" type="button">Food library</button></div>
+          </div>
+          <div class="log-date-row">
+            <button type="button" id="previousLogDay" aria-label="Previous day"><i data-lucide="arrow-left" aria-hidden="true">←</i></button>
+            <label><span>LOG DATE</span><input id="foodLogDate" type="date" /></label>
+            <button type="button" id="nextLogDay" aria-label="Next day"><i data-lucide="arrow-right" aria-hidden="true">→</i></button>
+            <button type="button" id="todayLogDay">Today</button>
+          </div>
+          <section class="nutrition-totals-card" aria-labelledby="nutritionTotalsHeading">
+            <div class="nutrition-totals-copy"><p class="eyebrow" id="foodLogDateLabel">TODAY</p><h2 id="nutritionTotalsHeading">Daily nutrition</h2><button class="nutrition-goal-setup" id="nutritionGoalSetupButton" type="button" hidden>Set up nutrition goal</button></div>
+            <div class="nutrition-stat-grid" id="nutritionStatGrid"></div>
+          </section>
+          <section class="quick-log-card" aria-labelledby="quickLogHeading">
+            <div class="quick-log-heading"><h2 id="quickLogHeading">What did you eat?</h2><button class="secondary-button" id="quickAddNewFoodButton" type="button"><i data-lucide="plus" aria-hidden="true">+</i>New food</button></div>
+            <div class="quick-log-empty" id="quickLogEmpty" role="status" hidden>
+              <span aria-hidden="true"><i data-lucide="utensils">·</i></span>
+              <h3>No foods found</h3>
+              <p>Add foods to your food library</p>
+            </div>
+            <div class="food-search-wrap">
+              <input id="foodSearchInput" type="search" autocomplete="off" placeholder="Search foods or meals…" aria-label="Search foods or meals" aria-controls="foodSearchResults" />
+              <div class="food-search-results" id="foodSearchResults" role="listbox" hidden></div>
+            </div>
+            <div class="recent-foods" id="recentFoods"></div>
+          </section>
+          <div class="section-heading food-log-section-heading"><div><h2>Logged foods</h2><p id="foodLogSummary">Nothing logged yet.</p></div></div>
+          <div class="food-log-list" id="foodLogList"></div>
+        </section>
+
+        <section id="foodLibraryView" class="view" aria-labelledby="foodLibraryHeading">
+          <div class="page-heading nutrition-page-heading">
+            <div><nav class="page-breadcrumb" aria-label="Breadcrumb"><button id="backToNutritionButton" type="button">Nutrition</button><span aria-hidden="true">/</span><span aria-current="page">Food library</span></nav><h1 id="foodLibraryHeading">Food library</h1></div>
+            <button class="primary-button" id="newLibraryItemButton" type="button"><i data-lucide="plus" aria-hidden="true">+</i>New</button>
+          </div>
+          <div class="library-type-tabs" role="tablist" aria-label="Library type"><button id="foodsLibraryTab" type="button" role="tab" aria-selected="true">Foods</button><button id="mealsLibraryTab" type="button" role="tab" aria-selected="false">Meals</button></div>
+          <div class="library-toolbar">
+            <input id="librarySearchInput" type="search" placeholder="Search foods…" aria-label="Search food library" />
+            <div class="library-toolbar-actions"><span id="foodLibraryCount"></span><button class="secondary-button" id="importFoodsButton" type="button"><i data-lucide="database-arrow-down" aria-hidden="true">↓</i>Import CSV</button><button class="secondary-button" id="exportFoodsButton" type="button"><i data-lucide="database-arrow-up" aria-hidden="true">↑</i>Export CSV</button><input id="foodCsvInput" type="file" accept=".csv,text/csv" hidden /></div>
+          </div>
+          <div class="food-library-grid" id="foodLibraryGrid"></div>
+        </section>
+
+        <section id="strengthView" class="view" aria-labelledby="strengthHeading">
+          <div class="page-heading strength-page-heading">
+            <div><h1 id="strengthHeading">Strength</h1></div>
+            <div class="strength-heading-actions"><button class="secondary-button" id="strengthTemplateButton" type="button">Workout Library</button><button class="secondary-button" id="editMesocycleButton" type="button" hidden>Edit block</button><button class="primary-button" id="newMesocycleButton" type="button"><i data-lucide="plus" aria-hidden="true">+</i>New block</button></div>
+          </div>
+          <div id="strengthContent"></div>
+        </section>
+
+        <section id="cardioView" class="view" aria-labelledby="cardioHeading">
+          <div class="page-heading cardio-page-heading">
+            <div><h1 id="cardioHeading">Cardio</h1></div>
+          </div>
+          <div id="cardioContent" aria-live="polite"><div class="cardio-loading">Loading cardio data…</div></div>
+        </section>
+
+        <section id="cardioSessionView" class="view" aria-labelledby="cardioSessionHeading">
+          <div class="page-heading cardio-session-page-heading">
+            <div><nav class="page-breadcrumb" aria-label="Breadcrumb"><button id="backToCardioButton" type="button">Cardio</button><span aria-hidden="true">/</span><span aria-current="page">Treadmill session</span></nav><h1 id="cardioSessionHeading">Treadmill session</h1><p id="cardioSessionMeta"></p></div>
+            <button id="deleteCardioSessionButton" class="danger-button" type="button" hidden>Delete session</button>
+          </div>
+          <div id="cardioSessionContent" aria-live="polite"><div class="cardio-loading">Loading session from D1…</div></div>
+        </section>
+
+        <section id="sleepView" class="view" aria-labelledby="sleepHeading">
+          <div class="page-heading sleep-page-heading">
+            <div><h1 id="sleepHeading">Sleep</h1></div>
+          </div>
+          <div id="sleepContent" aria-live="polite"><div class="cardio-loading">Loading sleep data…</div></div>
+        </section>
+
+        <section id="financesView" class="view" aria-labelledby="financesHeading">
+          <div class="page-heading finances-page-heading">
+            <div><h1 id="financesHeading">Finances</h1></div>
+          </div>
+          <div id="financesContent" aria-live="polite"><div class="cardio-loading">Loading finances</div></div>
+        </section>
+
+        <section id="workoutLibraryView" class="view" aria-labelledby="workoutLibraryHeading">
+          <div class="page-heading strength-page-heading">
+            <div><nav class="page-breadcrumb" aria-label="Breadcrumb"><button id="backToStrengthButton" type="button">Strength</button><span aria-hidden="true">/</span><span aria-current="page">Workout library</span></nav><h1 id="workoutLibraryHeading">Workout library</h1><p>Create reusable workouts, then start them from any mesocycle.</p></div>
+            <button class="primary-button" id="newWorkoutButton" type="button"><i data-lucide="plus" aria-hidden="true">+</i>New</button>
+          </div>
+          <div class="library-toolbar">
+            <input id="workoutLibrarySearch" type="search" placeholder="Search workouts…" aria-label="Search workout library" />
+            <div class="library-toolbar-actions"><span id="workoutLibraryCount"></span></div>
+          </div>
+          <div class="food-library-grid workout-library-grid" id="workoutLibraryGrid"></div>
+        </section>
+
+        <section id="workoutSessionView" class="view" aria-labelledby="workoutSessionHeading">
+          <div class="page-heading workout-session-page-heading">
+            <div><nav class="page-breadcrumb" aria-label="Breadcrumb"><button id="backToStrengthFromWorkout" type="button">Strength</button><span aria-hidden="true">/</span><span id="workoutSessionBreadcrumb" aria-current="page">Workout</span></nav><h1 id="workoutSessionHeading">Workout</h1><p id="workoutSessionMeta"></p></div>
+            <div class="workout-session-actions">
+              <label for="workoutSessionDate">Session date<input id="workoutSessionDate" type="date" /></label>
+              <button class="primary-button" id="finishWorkoutButton" type="button">Finish workout</button>
+            </div>
+          </div>
+          <div id="workoutSessionContent"></div>
+        </section>
+
+        <section id="settingsView" class="view" aria-labelledby="settingsHeading">
+          <div class="page-heading settings-page-heading">
+            <div><p class="eyebrow">APP SETTINGS</p><h1 id="settingsHeading">Settings</h1><p>Manage goals, finances, and access to your private Tempo area.</p></div>
+            <button class="secondary-button" id="replayWalkthroughButton" type="button"><i data-lucide="circle-play" aria-hidden="true">▶</i>Replay walkthrough</button>
+          </div>
+          <section class="settings-preferences-card settings-share-card" aria-labelledby="settingsShareHeading">
+            <div class="settings-editor-heading"><div><h2 id="settingsShareHeading">Share this</h2><p>Scan the QR code on another device to open this same Tempo area.</p></div></div>
+            <div class="settings-share-layout">
+              <div class="private-area-qr" id="privateAreaQrCode" aria-live="polite"></div>
+              <div class="settings-share-details">
+                <label for="privateAreaUrl">Private URL</label>
+                <div class="private-area-url-row"><input id="privateAreaUrl" type="text" readonly spellcheck="false" /><button class="secondary-button" id="copyPrivateAreaUrlButton" type="button"><i data-lucide="copy" aria-hidden="true">⧉</i>Copy link</button></div>
+                <p><strong>Keep this QR code private.</strong> Anyone who scans it receives full access to this area.</p>
+              </div>
+            </div>
+          </section>
+          <section class="settings-preferences-card" id="settingsNutritionGoalCard" aria-labelledby="settingsNutritionGoalHeading">
+            <div class="settings-editor-heading"><div><h2 id="settingsNutritionGoalHeading">Nutrition goal</h2><p>Configure your daily calorie and macronutrient targets.</p></div><div><button class="secondary-button" id="settingsNutritionGoalButton" type="button">Configure goal</button></div></div>
+            <div class="settings-goal-summary" id="settingsNutritionGoalSummary"></div>
+          </section>
+          <section class="settings-preferences-card" id="settingsCardioGoalCard" aria-labelledby="settingsCardioGoalHeading">
+            <div class="settings-editor-heading"><div><h2 id="settingsCardioGoalHeading">Zone 2 cardio goal</h2><p>Configure your weekly target for Moderate-zone treadmill minutes.</p></div><div><button class="secondary-button" id="settingsCardioGoalButton" type="button">Set up goal</button></div></div>
+            <div class="settings-goal-summary settings-single-goal-summary" id="settingsCardioGoalSummary"></div>
+          </section>
+          <section class="settings-preferences-card" id="settingsStepsGoalCard" aria-labelledby="settingsStepsGoalHeading">
+            <div class="settings-editor-heading"><div><h2 id="settingsStepsGoalHeading">Daily steps goal</h2><p>Configure your daily target and hourly walking pace.</p></div><div><button class="secondary-button" id="settingsStepsGoalButton" type="button">Set up goal</button></div></div>
+            <div class="settings-goal-summary settings-single-goal-summary" id="settingsStepsGoalSummary"></div>
+          </section>
+          <section class="settings-preferences-card" id="settingsSleepGoalCard" aria-labelledby="settingsSleepGoalHeading">
+            <div class="settings-editor-heading"><div><h2 id="settingsSleepGoalHeading">Sleep goal</h2><p>Configure your nightly sleep duration and target start time.</p></div><div><button class="secondary-button" id="settingsSleepGoalButton" type="button">Set up goal</button></div></div>
+            <div class="settings-goal-summary settings-sleep-goal-summary" id="settingsSleepGoalSummary"></div>
+          </section>
+          <section class="settings-preferences-card" id="settingsFinanceCurrencyCard" aria-labelledby="settingsFinanceCurrencyHeading">
+            <div class="settings-editor-heading"><div><h2 id="settingsFinanceCurrencyHeading">Portfolio currency</h2><p>Stocks and cash are converted into this currency throughout Finances.</p></div><div><label class="settings-currency-field" for="settingsFinanceCurrency">Display currency<select id="settingsFinanceCurrency" aria-describedby="settingsFinanceCurrencyStatus"><option>CAD</option><option>USD</option><option>EUR</option><option>GBP</option><option>JPY</option><option>AUD</option><option>NZD</option><option>CHF</option></select></label></div></div>
+            <p class="settings-currency-status" id="settingsFinanceCurrencyStatus">Defaults to CAD.</p>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <div class="walkthrough-overlay" id="walkthroughOverlay" hidden>
+      <div class="walkthrough-spotlight" id="walkthroughSpotlight" aria-hidden="true"></div>
+      <section class="walkthrough-popover" id="walkthroughPopover" role="dialog" aria-modal="true" aria-labelledby="walkthroughTitle" aria-describedby="walkthroughDescription">
+        <div class="walkthrough-topline">
+          <span id="walkthroughProgress">Step 1 of 6</span>
+          <button id="skipWalkthroughButton" type="button">Skip tour</button>
+        </div>
+        <h2 id="walkthroughTitle"></h2>
+        <p id="walkthroughDescription"></p>
+        <p class="walkthrough-error" id="walkthroughError" role="alert" hidden></p>
+        <div class="walkthrough-footer">
+          <div class="walkthrough-dots" id="walkthroughDots" aria-hidden="true"></div>
+          <div class="walkthrough-actions">
+            <button id="previousWalkthroughButton" type="button">Back</button>
+            <button class="primary-button" id="nextWalkthroughButton" type="button">Next</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <dialog id="financeHoldingDialog">
+      <form id="financeHoldingForm" class="finance-add-form">
+        <h2>Add holding</h2>
+        <label>Asset type<select id="financeHoldingType"><option value="STOCK">Stock</option><option value="CASH">Cash</option></select></label>
+        <label id="financeTickerField">Ticker<input id="financeTicker" maxlength="32" placeholder="e.g. AAPL" autocomplete="off" /></label>
+        <label id="financeCashCurrencyField" hidden>Currency<select id="financeCashCurrency"><option>CAD</option><option>USD</option><option>EUR</option><option>GBP</option><option>JPY</option><option>AUD</option><option>NZD</option><option>CHF</option></select></label>
+        <label id="financeCashNameField" hidden>Display name<input id="financeCashName" maxlength="60" placeholder="e.g. Emergency fund" autocomplete="off" /></label>
+        <label>Quantity<input id="financeQuantity" type="number" min="0.000001" step="any" placeholder="0" required /></label>
+        <p class="form-error" id="financeHoldingError" role="alert"></p>
+        <div class="dialog-actions"><button class="primary-button" type="submit"><i data-lucide="plus" aria-hidden="true">+</i>Add holding</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="financeEditHoldingDialog">
+      <form id="financeEditHoldingForm" class="finance-add-form">
+        <h2>Edit holding</h2>
+        <input id="financeEditHoldingId" type="hidden" />
+        <label>Asset type<select id="financeEditHoldingType"><option value="STOCK">Stock</option><option value="CASH">Cash</option></select></label>
+        <label id="financeEditTickerField">Ticker<input id="financeEditTicker" maxlength="32" placeholder="e.g. AAPL" autocomplete="off" /></label>
+        <label id="financeEditCashCurrencyField" hidden>Currency<select id="financeEditCashCurrency"><option>CAD</option><option>USD</option><option>EUR</option><option>GBP</option><option>JPY</option><option>AUD</option><option>NZD</option><option>CHF</option></select></label>
+        <label id="financeEditCashNameField" hidden>Display name<input id="financeEditCashName" maxlength="60" placeholder="e.g. Emergency fund" autocomplete="off" /></label>
+        <label>Quantity<input id="financeEditQuantity" type="number" min="0.000001" step="any" placeholder="0" required /></label>
+        <p class="form-error" id="financeEditHoldingError" role="alert"></p>
+        <div class="dialog-actions"><button class="primary-button" type="submit">Save holding</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="timerDialog">
+      <form id="timerForm" method="dialog">
+        <h2 id="dialogTitle">New timer</h2>
+        <input id="editTimerId" type="hidden" />
+        <label>Timer name<input id="timerName" maxlength="32" required placeholder="e.g. Deep work" autocomplete="off" /></label>
+        <p class="timer-duration-label" id="timerDurationLabel">Duration</p>
+        <div class="duration-fields">
+          <label>Hours<input id="timerHours" type="number" min="0" max="23" value="0" inputmode="numeric" /></label>
+          <label>Minutes<input id="timerMinutes" type="number" min="0" max="59" value="25" inputmode="numeric" /></label>
+          <label>Seconds<input id="timerSeconds" type="number" min="0" max="59" value="0" inputmode="numeric" /></label>
+        </div>
+        <label class="toggle-row timer-option-toggle">
+          <span><strong>Pomodoro timer</strong><small>Follow the work timer with a rest timer in the same session.</small></span>
+          <input id="timerPomodoro" type="checkbox" /><i aria-hidden="true"></i>
+        </label>
+        <div class="goal-config" id="restDurationConfig" hidden>
+          <div class="goal-config-copy"><strong>Rest duration</strong><small>The rest portion starts automatically after work.</small></div>
+          <div class="duration-fields compact-duration-fields">
+            <label>Hours<input id="restHours" type="number" min="0" max="23" value="0" inputmode="numeric" /></label>
+            <label>Minutes<input id="restMinutes" type="number" min="0" max="59" value="5" inputmode="numeric" /></label>
+            <label>Seconds<input id="restSeconds" type="number" min="0" max="59" value="0" inputmode="numeric" /></label>
+          </div>
+        </div>
+        <fieldset>
+          <legend>Color</legend>
+          <div class="color-options" id="colorOptions">
+            <label><input type="radio" name="color" value="#ec5f3e" checked /><span style="--swatch:#ec5f3e"></span></label>
+            <label><input type="radio" name="color" value="#6558d3" /><span style="--swatch:#6558d3"></span></label>
+            <label><input type="radio" name="color" value="#16a085" /><span style="--swatch:#16a085"></span></label>
+            <label><input type="radio" name="color" value="#d6941f" /><span style="--swatch:#d6941f"></span></label>
+            <label><input type="radio" name="color" value="#3976b8" /><span style="--swatch:#3976b8"></span></label>
+            <label><input type="radio" name="color" value="#d94f8a" /><span style="--swatch:#d94f8a"></span></label>
+            <label><input type="radio" name="color" value="#69a82f" /><span style="--swatch:#69a82f"></span></label>
+            <label><input type="radio" name="color" value="#8b5cf6" /><span style="--swatch:#8b5cf6"></span></label>
+            <label><input type="radio" name="color" value="#00a6b2" /><span style="--swatch:#00a6b2"></span></label>
+            <label><input type="radio" name="color" value="#b24b3f" /><span style="--swatch:#b24b3f"></span></label>
+            <label><input type="radio" name="color" value="#6f7d95" /><span style="--swatch:#6f7d95"></span></label>
+            <label><input type="radio" name="color" value="#c15d15" /><span style="--swatch:#c15d15"></span></label>
+          </div>
+        </fieldset>
+        <label class="toggle-row">
+          <span><strong>Final countdown beeps</strong><small>Beep once per second during the final five seconds of each portion.</small></span>
+          <input id="timerCountdownBeeps" type="checkbox" /><i aria-hidden="true"></i>
+        </label>
+        <label class="toggle-row">
+          <span><strong>Count completed sessions</strong><small>Show how many times this timer reaches zero today.</small></span>
+          <input id="trackCompletions" type="checkbox" /><i aria-hidden="true"></i>
+        </label>
+        <div class="goal-config" id="goalConfig" hidden>
+          <div class="goal-config-copy"><strong>Today’s target</strong><small>How many times should this timer be completed today?</small></div>
+          <div class="goal-fields"><label>Times<input id="timerDailyTarget" type="number" min="1" max="999" value="1" inputmode="numeric" /></label></div>
+        </div>
+        <p class="form-error" id="formError" role="alert"></p>
+        <div class="dialog-actions"><button class="primary-button" type="submit">Save timer</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="widgetDialog">
+      <form id="widgetForm" method="dialog">
+        <h2 id="widgetDialogTitle">New habit</h2>
+        <input id="editWidgetId" type="hidden" />
+        <fieldset class="type-fieldset">
+          <legend>Tracker type</legend>
+          <div class="type-options">
+            <label><input type="radio" name="widgetType" value="counter" checked /><span><b><i data-lucide="list-plus" aria-hidden="true">+1</i></b><strong>Counter</strong><small>Track an amount toward a goal</small></span></label>
+            <label><input type="radio" name="widgetType" value="toggle" /><span><b><i data-lucide="check" aria-hidden="true">✓</i></b><strong>Toggle</strong><small>Mark a daily habit complete</small></span></label>
+          </div>
+        </fieldset>
+        <label>Habit name<input id="widgetName" maxlength="32" required placeholder="e.g. Glasses of water" autocomplete="off" /></label>
+        <label id="counterGoalField" class="counter-goal-field">Daily goal<input id="widgetGoal" type="number" min="1" max="9999" value="8" inputmode="numeric" /></label>
+        <fieldset class="schedule-fieldset">
+          <legend>Active days</legend>
+          <div class="weekday-options" id="widgetWeekdayOptions">
+            <label title="Sunday"><input type="checkbox" name="widgetWeekday" value="0" checked /><span>S</span></label>
+            <label title="Monday"><input type="checkbox" name="widgetWeekday" value="1" checked /><span>M</span></label>
+            <label title="Tuesday"><input type="checkbox" name="widgetWeekday" value="2" checked /><span>T</span></label>
+            <label title="Wednesday"><input type="checkbox" name="widgetWeekday" value="3" checked /><span>W</span></label>
+            <label title="Thursday"><input type="checkbox" name="widgetWeekday" value="4" checked /><span>T</span></label>
+            <label title="Friday"><input type="checkbox" name="widgetWeekday" value="5" checked /><span>F</span></label>
+            <label title="Saturday"><input type="checkbox" name="widgetWeekday" value="6" checked /><span>S</span></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Color</legend>
+          <div class="color-options" id="widgetColorOptions"></div>
+        </fieldset>
+        <p class="form-error" id="widgetFormError" role="alert"></p>
+        <div class="dialog-actions"><button class="primary-button" type="submit">Save habit</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="foodDialog" class="food-dialog">
+      <form id="foodForm" method="dialog">
+        <h2 id="foodDialogTitle">New food</h2>
+        <input id="editFoodId" type="hidden" />
+        <label>Food title<input id="foodTitle" type="text" maxlength="60" required placeholder="e.g. Greek yoghurt" autocomplete="off" /></label>
+        <div class="serving-fields">
+          <label>Serving<input id="foodServingSize" type="number" min="0.01" step="any" value="100" required inputmode="decimal" /></label>
+          <label>Unit<select id="foodServingUnit" required><option value="g">grams</option><option value="mL">mL</option><option value="cups">cups</option><option value="tsp">teaspoon</option><option value="tbsp">tablespoon</option><option value="count">count</option></select></label>
+        </div>
+        <p class="form-section-label">NUTRITION PER SERVING</p>
+        <div class="nutrition-fields">
+          <label>Calories<input id="foodCalories" type="number" min="0" step="any" value="0" required inputmode="decimal" /></label>
+          <label>Carbs (g)<input id="foodCarbs" type="number" min="0" step="any" value="0" required inputmode="decimal" /></label>
+          <label>Protein (g)<input id="foodProtein" type="number" min="0" step="any" value="0" required inputmode="decimal" /></label>
+          <label>Fats (g)<input id="foodFats" type="number" min="0" step="any" value="0" required inputmode="decimal" /></label>
+          <label>Fibre (g)<input id="foodFibre" type="number" min="0" step="any" value="0" required inputmode="decimal" /></label>
+        </div>
+        <p class="form-error" id="foodFormError" role="alert"></p>
+        <div class="dialog-actions"><button class="primary-button" type="submit">Save food</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="servingDialog" class="compact-dialog">
+      <form id="servingForm" method="dialog">
+        <h2 id="servingFoodTitle">Food serving</h2>
+        <input id="editFoodLogId" type="hidden" />
+        <label>Serving size<input id="loggedServingSize" type="number" min="0.01" step="any" required inputmode="decimal" /></label>
+        <p class="dialog-helper" id="servingDialogHelper"></p>
+        <p class="form-error" id="servingFormError" role="alert"></p>
+        <div class="dialog-actions"><button class="primary-button" type="submit">Update serving</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="nutritionGoalDialog">
+      <form id="nutritionGoalForm" method="dialog">
+        <h2>Nutrition goal</h2>
+        <p class="dialog-helper">Set one daily goal used across your Food Log and home progress rings.</p>
+        <div class="nutrition-fields goal-nutrition-fields">
+          <label>Calories<input id="goalCalories" type="number" min="0" step="any" inputmode="decimal" /></label>
+          <label>Carbs (g)<input id="goalCarbs" type="number" min="0" step="any" inputmode="decimal" /></label>
+          <label>Protein (g)<input id="goalProtein" type="number" min="0" step="any" inputmode="decimal" /></label>
+          <label>Fats (g)<input id="goalFats" type="number" min="0" step="any" inputmode="decimal" /></label>
+          <label>Fibre (g)<input id="goalFibre" type="number" min="0" step="any" inputmode="decimal" /></label>
+        </div>
+        <p class="form-error" id="nutritionGoalFormError" role="alert"></p>
+        <div class="dialog-actions"><button class="primary-button" type="submit">Save goal</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="cardioZone2GoalDialog" class="compact-dialog">
+      <form id="cardioZone2GoalForm" method="dialog">
+        <h2>Zone 2 goal</h2>
+        <p class="dialog-helper">Set a weekly target for minutes spent in the Moderate heart-rate zone during treadmill sessions.</p>
+        <label>Minutes per week<input id="cardioZone2GoalMinutes" type="number" min="1" max="10080" step="1" value="150" required inputmode="numeric" /></label>
+        <p class="form-error" id="cardioZone2GoalError" role="alert"></p>
+        <div class="dialog-actions"><button class="primary-button" type="submit">Save goal</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="cardioStepsGoalDialog" class="compact-dialog">
+      <form id="cardioStepsGoalForm" method="dialog">
+        <h2>Daily steps goal</h2>
+        <p class="dialog-helper">Set the number of steps you want to reach each day.</p>
+        <label>Steps per day<input id="cardioStepsGoal" type="number" min="1" max="1000000" step="1" value="10000" required inputmode="numeric" /></label>
+        <p class="form-error" id="cardioStepsGoalError" role="alert"></p>
+        <div class="dialog-actions"><button class="primary-button" type="submit">Save goal</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="sleepGoalDialog" class="compact-dialog">
+      <form id="sleepGoalForm" method="dialog">
+        <h2>Sleep goal</h2>
+        <p class="dialog-helper">Set the sleep duration you want each night and the time you aim to be asleep by.</p>
+        <div class="sleep-goal-fields"><label>Hours slept<input id="sleepGoalHours" type="number" min="0.25" max="24" step="0.25" value="8" required inputmode="decimal" /></label><label>Sleep start time<input id="sleepGoalStartTime" type="time" value="22:30" required /></label></div>
+        <p class="form-error" id="sleepGoalError" role="alert"></p>
+        <div class="dialog-actions"><button class="primary-button" type="submit">Save goal</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="mealDialog" class="meal-dialog">
+      <form id="mealForm" method="dialog">
+        <h2 id="mealDialogTitle">New meal</h2>
+        <input id="editMealId" type="hidden" />
+        <label>Meal title<input id="mealTitle" type="text" maxlength="60" required placeholder="e.g. Weekday breakfast" autocomplete="off" /></label>
+        <div class="meal-items-heading"><span>FOODS IN THIS MEAL</span><button id="addMealItemButton" type="button"><i data-lucide="plus" aria-hidden="true">+</i>Add food</button></div>
+        <div class="meal-items" id="mealItems"></div>
+        <div class="meal-preview" id="mealPreview"></div>
+        <p class="form-error" id="mealFormError" role="alert"></p>
+        <div class="dialog-actions"><button class="primary-button" type="submit">Save meal</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="mesocycleDialog" class="strength-dialog">
+      <form id="mesocycleForm" method="dialog">
+        <input id="editMesocycleId" type="hidden" />
+        <h2 id="mesocycleDialogTitle">Set up a mesocycle</h2>
+        <label>Mesocycle name<input id="mesocycleName" maxlength="60" required value="Strength block" /></label>
+        <div class="strength-form-grid"><label>Weeks<input id="mesocycleWeeks" type="number" min="2" max="16" value="5" required /></label><label>Weekly increase (%)<input id="mesocycleRate" type="number" min="0" max="100" step="0.1" value="2.5" required /></label></div>
+        <fieldset class="mesocycle-workout-picker"><legend>Workouts</legend><p>Select the workouts that belong to this mesocycle.</p><div id="mesocycleWorkoutOptions" class="mesocycle-workout-options"></div></fieldset>
+        <label class="toggle-row strength-deload-toggle"><span><strong>Final week deload</strong><small>Keep its volume informational and exclude it from the next target.</small></span><input id="mesocycleDeload" type="checkbox" checked /><i aria-hidden="true"></i></label>
+        <p class="form-error" id="mesocycleFormError" role="alert"></p>
+        <div class="dialog-actions"><button class="primary-button" id="mesocycleSubmitButton" type="submit" value="save">Create mesocycle</button><button class="secondary-button" id="mesocycleRestartButton" type="submit" value="restart" hidden>Save and restart</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="strengthTemplateDialog" class="strength-dialog wide-dialog">
+      <form id="strengthTemplateForm" method="dialog">
+        <h2 id="strengthTemplateDialogTitle">Add a workout</h2>
+        <input id="editStrengthTemplateId" type="hidden" />
+        <label>Workout name<input id="strengthTemplateName" maxlength="60" required placeholder="e.g. Upper A" /></label>
+        <div class="strength-template-heading"><span>EXERCISES</span><button class="secondary-button" id="addTemplateExercise" type="button"><i data-lucide="plus" aria-hidden="true">+</i>Add exercise</button></div>
+        <div class="strength-template-matrix">
+          <div class="strength-template-grid-head" aria-hidden="true"><span></span><span>Exercise</span><span>Muscle group</span><span>Sets</span><span>Reps</span><span>Load (lb)</span><span></span></div>
+          <div id="strengthTemplateRows" class="strength-template-rows"></div>
+        </div>
+        <p class="form-error" id="strengthTemplateFormError" role="alert"></p>
+        <div class="dialog-actions"><button class="primary-button" type="submit">Save workout</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="deleteConfirmationDialog" class="compact-dialog">
+      <form id="deleteConfirmationForm" method="dialog">
+        <h2 id="deleteConfirmationTitle">Delete item?</h2>
+        <p class="dialog-helper" id="deleteConfirmationMessage"></p>
+        <div class="dialog-actions delete-dialog-actions"><button class="danger-button" id="confirmDeleteButton" type="submit">Delete</button></div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="https://unpkg.com/lucide@1.28.0/dist/umd/lucide.js" referrerpolicy="no-referrer"></script>
+    <script src="/vendor/qrcode.js?v=1"></script>
+    <script type="module" src="/api-client.js?v=58"></script>
+  </body>
+</html>
