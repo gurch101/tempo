@@ -1,4 +1,6 @@
 import { PRIVATE_PATH_PATTERN, shouldReplaceMissingSpace } from "./private-space.js";
+import { createCalendar } from "./calendar.js";
+import { createSectionSaveQueue, loadConsistentSections } from "./browser-persistence.js?v=1";
 
 const LAST_PATH_KEY = "tempo-last-private-path";
 const privateMatch = /^\/p\/([A-Za-z0-9_-]{43})(?:\/.*)?$/.exec(location.pathname);
@@ -27,9 +29,6 @@ if (!privateMatch) {
   const privatePath = `/p/${accessKey}`;
   const rememberedPath = localStorage.getItem(LAST_PATH_KEY);
   let revision = 0;
-  let latestSnapshot = null;
-  const pendingSections = new Set();
-  let saveLoop = null;
   let mutationLoop = Promise.resolve();
   let offline = false;
 
@@ -59,95 +58,42 @@ if (!privateMatch) {
     document.documentElement.classList.toggle("is-offline", value);
     window.dispatchEvent(new CustomEvent("tempo:connectivity", { detail: { offline: value } }));
   };
-  const loadAppState = async () => {
-    const paths = ["timers", "habits", "habit-logs", "foods", "meals", "food-logs", "nutrition-goal", "strength"];
-    const payloads = await Promise.all(paths.map(path => request(`/api/${path}`)));
-    revision = Math.max(...payloads.map(payload => Number(payload.revision) || 0));
+  const loadAppState = async bootstrap => {
+    const calendar = createCalendar(bootstrap.timezone);
+    const today = calendar.dayKey(new Date(bootstrap.serverTime));
+    const habitFrom = calendar.addCalendarDays(today, -8);
+    const nutritionFrom = calendar.addCalendarDays(today, -7);
+    const paths = ["timers", "habits", `habit-logs?from=${habitFrom}&to=${today}`, "foods", "meals", `food-logs?from=${nutritionFrom}&to=${today}`, "nutrition-goal", "strength"];
+    const loaded = await loadConsistentSections(() => Promise.all(paths.map(path => request(`/api/${path}`))));
+    const payloads = loaded.payloads;
+    revision = loaded.revision;
     const [timers, widgets, logs, foods, meals, foodLogData, nutritionGoal, strength] = payloads.map(payload => payload.data);
     return { schemaVersion: 14, timers, widgets, logs, foods, meals, foodLogs: foodLogData.foodLogs, recentFoodIds: foodLogData.recentFoodIds, recentMealIds: foodLogData.recentMealIds, nutritionGoal, strength, legacyDefaultsRemoved: true };
   };
   const loadBootstrap = async () => {
     const payload = await request("/api/bootstrap");
     revision = payload.revision;
-    const state = await loadAppState();
     setOffline(false);
-    return { ...payload.data, state };
+    return payload.data;
   };
 
-  const sectionOrder = ["timers", "habits", "habitLogs", "foods", "meals", "foodLogs", "nutritionGoal", "strength"];
-  const sectionRequest = {
-    timers: snapshot => ["/api/timers", snapshot.timers],
-    habits: snapshot => ["/api/habits", snapshot.widgets],
-    habitLogs: snapshot => ["/api/habit-logs", snapshot.logs],
-    foods: snapshot => ["/api/foods", snapshot.foods],
-    meals: snapshot => ["/api/meals", snapshot.meals],
-    foodLogs: snapshot => ["/api/food-logs", { foodLogs: snapshot.foodLogs, recentFoodIds: snapshot.recentFoodIds, recentMealIds: snapshot.recentMealIds }],
-    nutritionGoal: snapshot => ["/api/nutrition-goal", snapshot.nutritionGoal],
-    strength: snapshot => ["/api/strength", snapshot.strength]
+  const sectionPaths = {
+    timers: "/api/timers", habits: "/api/habits", habitLogs: "/api/habit-logs", foods: "/api/foods",
+    meals: "/api/meals", foodLogs: "/api/food-logs", nutritionGoal: "/api/nutrition-goal", strength: "/api/strength"
   };
-  const mergeSection = (snapshot, section, data) => {
-    if (section === "habits") snapshot.widgets = data;
-    else if (section === "habitLogs") snapshot.logs = data;
-    else if (section === "foodLogs") Object.assign(snapshot, data);
-    else snapshot[section] = data;
-  };
-  const replaceIdEverywhere = (value, oldId, newId) => {
-    if (Array.isArray(value)) return value.map(item => replaceIdEverywhere(item, oldId, newId));
-    if (!value || typeof value !== "object") return String(value) === String(oldId) ? newId : value;
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key.endsWith(`:${oldId}`) ? `${key.slice(0, key.length - String(oldId).length)}${newId}` : key, replaceIdEverywhere(item, oldId, newId)]));
-  };
-  const reconcileIds = (target, before, after) => {
-    if (!target || !before || !after || typeof before !== "object" || typeof after !== "object") return target;
-    if (before.id != null && after.id != null && String(before.id) !== String(after.id)) target = replaceIdEverywhere(target, before.id, after.id);
-    if (Array.isArray(before) && Array.isArray(after)) before.forEach((item, index) => { target = reconcileIds(target, item, after[index]); });
-    else if (!Array.isArray(before) && !Array.isArray(after)) Object.keys(before).forEach(key => { target = reconcileIds(target, before[key], after[key]); });
-    return target;
-  };
-  const flush = async () => {
-    let succeeded = true;
-    let confirmedState = null;
-    while (latestSnapshot) {
-      let snapshot = latestSnapshot; latestSnapshot = null;
-      const sections = sectionOrder.filter(section => pendingSections.delete(section));
-      let confirmed = structuredClone(snapshot);
-      try {
-        for (const section of sections) {
-          const [path, body] = sectionRequest[section](snapshot);
-          const payload = await request(path, { method: "PUT", headers: { "If-Match": `"${revision}"` }, body: JSON.stringify(body) });
-          revision = payload.revision;
-          snapshot = reconcileIds(snapshot, body, payload.data);
-          confirmed = reconcileIds(confirmed, body, payload.data);
-          if (latestSnapshot) latestSnapshot = reconcileIds(latestSnapshot, body, payload.data);
-          if (!latestSnapshot || !pendingSections.has(section)) mergeSection(confirmed, section, payload.data);
-        }
-        confirmedState = confirmed; setOffline(false);
-      } catch (requestError) {
-        succeeded = false;
-        setOffline(true);
-        if (requestError.status === 412) {
-          const authoritative = await loadBootstrap(); latestSnapshot = null;
-          window.dispatchEvent(new CustomEvent("tempo:conflict", { detail: authoritative.state }));
-        }
-        window.dispatchEvent(new CustomEvent("tempo:save-error", { detail: { message: requestError.message, conflict: requestError.status === 412 } }));
-        break;
-      }
-    }
-    saveLoop = null;
-    if (succeeded) {
-      if (confirmedState) window.dispatchEvent(new CustomEvent("tempo:saved-state", { detail: confirmedState }));
-      window.dispatchEvent(new CustomEvent("tempo:saved", { detail: { revision } }));
-    }
-  };
-  const saveState = (state, sections) => {
-    if (offline) {
-      window.dispatchEvent(new CustomEvent("tempo:save-error", { detail: { message: "Tempo is offline. Reload after reconnecting before making more changes." } }));
-      return Promise.resolve(false);
-    }
-    latestSnapshot = structuredClone(state);
-    for (const section of Array.isArray(sections) ? sections : [sections]) if (sectionRequest[section]) pendingSections.add(section);
-    saveLoop ||= flush();
-    return saveLoop.then(() => !offline);
-  };
+  const sectionQueue = createSectionSaveQueue({
+    send: (section, body, expected) => request(sectionPaths[section], { method: "PUT", headers: { "If-Match": `"${expected}"` }, body: JSON.stringify(body) }),
+    getRevision: () => revision, setRevision: value => { revision = value; }, isOffline: () => offline, setOffline,
+    recoverConflict: async () => {
+      const authoritativeBootstrap = await loadBootstrap(); window.__TEMPO_BOOTSTRAP__ = authoritativeBootstrap;
+      const authoritativeState = await loadAppState(authoritativeBootstrap);
+      window.dispatchEvent(new CustomEvent("tempo:conflict", { detail: authoritativeState }));
+    },
+    onConfirmed: sections => window.dispatchEvent(new CustomEvent("tempo:saved-state", { detail: sections })),
+    onSaved: value => window.dispatchEvent(new CustomEvent("tempo:saved", { detail: { revision: value } })),
+    onError: requestError => window.dispatchEvent(new CustomEvent("tempo:save-error", { detail: { message: requestError.message, conflict: requestError.status === 412 } }))
+  });
+  const saveState = (state, sections) => sectionQueue.save(state, sections);
   window.tempoServer = {
     saveState,
     async getCardio() { return (await request("/api/cardio")).data; },
@@ -182,10 +128,12 @@ if (!privateMatch) {
 
   try {
     const bootstrap = await loadBootstrap();
+    const initialState = await loadAppState(bootstrap);
     localStorage.setItem(LAST_PATH_KEY, privatePath);
     window.__TEMPO_BOOTSTRAP__ = bootstrap;
+    window.__TEMPO_INITIAL_STATE__ = initialState;
     window.__TEMPO_PRIVATE_PATH__ = privatePath;
-    await import("./app.js?v=131");
+    await import("./app.js?v=132");
     document.documentElement.classList.remove("is-booting");
   } catch (error) {
     if (shouldReplaceMissingSpace(error.status, privatePath, rememberedPath)) {

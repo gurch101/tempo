@@ -589,8 +589,10 @@ for(const [route,section]of Object.entries(sections)){
   app.delete(`/api/${route}/:id`,async c=>{const items=await section.read(c),id=c.req.param("id"),filtered=items.filter(item=>String(item.id)!==id);return saveSection(c,filtered,section.write,()=>section.read(c));});
 }
 
-app.get("/api/habit-logs", async c => c.json({ data: await readHabitLogs(c.env.DB,c.var.space.id), revision: c.var.space.revision }));
-app.put("/api/habit-logs", async c => {const body=await c.req.json<TempoState["logs"]>();return saveSection(c,body,writeHabitLogs,()=>readHabitLogs(c.env.DB,c.var.space.id));});
+const validDateQuery=(value:string)=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;const parsed=Date.parse(`${value}T00:00:00Z`);return Number.isFinite(parsed)&&new Date(parsed).toISOString().slice(0,10)===value;};
+function dateRangeQuery(c:AppContext){const from=c.req.query("from"),to=c.req.query("to");if((from&&!validDateQuery(from))||(to&&!validDateQuery(to))||(from&&to&&from>to))return null;return{from,to};}
+app.get("/api/habit-logs", async c => {const range=dateRangeQuery(c);if(!range)return error(c,422,"validation_failed","Use a valid chronological date range.",{date:"Use YYYY-MM-DD dates with from on or before to."});return c.json({ data: await readHabitLogs(c.env.DB,c.var.space.id,range.from,range.to), revision: c.var.space.revision });});
+app.put("/api/habit-logs", async c => {const body=await c.req.json<TempoState["logs"]>(),dates=Object.keys(body).sort();return saveSection(c,body,writeHabitLogs,()=>dates.length?readHabitLogs(c.env.DB,c.var.space.id,dates[0],dates.at(-1)):Promise.resolve({}));});
 
 app.get("/api/strength", async c => c.json({ data: await readStrength(c.env.DB,c.var.space), revision: c.var.space.revision }));
 app.put("/api/strength", async c => {const body=await c.req.json<TempoState["strength"]>();return saveSection(c,body,writeStrength,()=>readStrength(c.env.DB,c.var.space));});
@@ -650,8 +652,8 @@ app.delete("/api/workout-sessions/:id", async c => {
   return error(c,404,"not_found","Workout session not found.");
 });
 
-app.get("/api/food-logs", async c => c.json({data:await readFoodLogs(c.env.DB,c.var.space.id),revision:c.var.space.revision}));
-app.put("/api/food-logs", async c => {const body=await c.req.json<{foodLogs:TempoState["foodLogs"]}>();return saveSection(c,body.foodLogs,writeFoodLogs,()=>readFoodLogs(c.env.DB,c.var.space.id));});
+app.get("/api/food-logs", async c => {const range=dateRangeQuery(c);if(!range)return error(c,422,"validation_failed","Use a valid chronological date range.",{date:"Use YYYY-MM-DD dates with from on or before to."});return c.json({data:await readFoodLogs(c.env.DB,c.var.space.id,range.from,range.to),revision:c.var.space.revision});});
+app.put("/api/food-logs", async c => {const body=await c.req.json<{foodLogs:TempoState["foodLogs"]}>(),dates=Object.keys(body.foodLogs).sort();return saveSection(c,body.foodLogs,writeFoodLogs,()=>readFoodLogs(c.env.DB,c.var.space.id,dates.length?dates[0]:"9999-12-31",dates.length?dates.at(-1):"9999-12-31"));});
 app.post("/api/foods/batch", async c => {
   const foods = await c.req.json<Array<Record<string, unknown>>>();
   if (!Array.isArray(foods)) throw new Error("Foods must be an array");

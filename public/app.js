@@ -1,6 +1,7 @@
 import { createCalendar } from "./calendar.js";
 import { liveStepsPace } from "./cardio-metrics.js?v=1";
 import { pathForView, routeFromLocation } from "./routes.js";
+import { mergeSection } from "./state-sections.js?v=1";
 
 const STATE_SCHEMA_VERSION = 14;
 const STORAGE_KEY = "tempo-state-v2";
@@ -180,32 +181,9 @@ function normalizeDays(days) {
   return normalized.length ? normalized : [...allDays];
 }
 
-function pruneOldLogs(logs, now = new Date()) {
-  if (!logs || typeof logs !== "object") return 0;
-  const cutoff = addCalendarDays(dayKey(now), -8);
-  let removed = 0;
-  Object.keys(logs).forEach(key => {
-    if (!validDateKey(key) || key < cutoff) {
-      delete logs[key];
-      removed += 1;
-    }
-  });
-  return removed;
-}
-
 function foodLogDateBounds(now = new Date()) {
   const max = dayKey(now);
   return { min: addCalendarDays(max, -7), max };
-}
-
-function pruneOldFoodLogs(foodLogs, now = new Date()) {
-  if (!foodLogs || typeof foodLogs !== "object") return 0;
-  const { min, max } = foodLogDateBounds(now); let removed = 0;
-  Object.keys(foodLogs).forEach(key => {
-    const valid = validDateKey(key);
-    if (!valid || key < min || key > max) { delete foodLogs[key]; removed += 1; }
-  });
-  return removed;
 }
 
 function migrateState(rawState) {
@@ -380,16 +358,13 @@ function migrateState(rawState) {
 }
 
 async function loadState() {
-  if (window.__TEMPO_BOOTSTRAP__) {
-    return migrateState(window.__TEMPO_BOOTSTRAP__.state);
+  if (window.__TEMPO_INITIAL_STATE__) {
+    return migrateState(window.__TEMPO_INITIAL_STATE__);
   }
   const current = readStoredState(STORAGE_KEY);
   const legacy = LEGACY_STORAGE_KEYS.map(readStoredState).find(Boolean);
   const currentLooksValid = current && typeof current === "object" && (current.schemaVersion || Array.isArray(current.timers) || (current.logs && typeof current.logs === "object"));
-  const migrated = migrateState(currentLooksValid ? current : legacy);
-  pruneOldLogs(migrated.logs);
-  pruneOldFoodLogs(migrated.foodLogs);
-  return migrated;
+  return migrateState(currentLooksValid ? current : legacy);
 }
 
 function saveState(sections) {
@@ -3675,7 +3650,7 @@ async function showRouteFromLocation() {
 updateViewLinkPaths();
 const timerDayReset = resetTimerCountsForCurrentDay();
 syncTimers();
-if (Number(timerDayReset) + pruneOldLogs(state.logs) + pruneOldFoodLogs(state.foodLogs)) saveState(["timers", "habitLogs", "foodLogs"]);
+if (timerDayReset) saveState("timers");
 renderTimers();
 renderFoodLibrary();
 renderFoodLog();
@@ -3702,7 +3677,7 @@ setInterval(() => {
     currentDayKey = currentDay;
     if (wasViewingToday) visibleDay = currentDay;
     foodLogDay = currentDay;
-    if (Number(resetTimerCountsForCurrentDay(currentDay)) + pruneOldLogs(state.logs) + pruneOldFoodLogs(state.foodLogs)) saveState(["timers", "habitLogs", "foodLogs"]);
+    if (resetTimerCountsForCurrentDay(currentDay)) saveState("timers");
   }
   const changed = syncTimers();
   updateTimeLeft();
@@ -3716,7 +3691,8 @@ setInterval(() => {
 }, 250);
 window.addEventListener("tempo:saved-state", event => {
   const activeSession = state.strength.mesocycles.flatMap(meso => meso.sessions || []).find(session => session.id === activeStrengthSessionId);
-  state = migrateState(event.detail);
+  Object.entries(event.detail).forEach(([section, data]) => mergeSection(state, section, data));
+  state = migrateState(state);
   if (activeSession) {
     const savedSession = state.strength.mesocycles.flatMap(meso => meso.sessions || []).find(session => session.createdAt === activeSession.createdAt && session.name === activeSession.name);
     activeStrengthSessionId = savedSession?.id || null;

@@ -24,8 +24,9 @@ export async function readHabits(db: D1Database, spaceId: number): Promise<Tempo
   return rows(habitResult).map(row => ({ id:n(row.id), name:s(row.name), type:s(row.kind)==="toggle"?"toggle":"counter", goal:n(row.goal,1), color:s(row.color), days:habitDays.get(n(row.id)) || [0,1,2,3,4,5,6] }));
 }
 
-export async function readHabitLogs(db: D1Database, spaceId: number): Promise<TempoState["logs"]> {
-  const result = await db.prepare("SELECT * FROM habit_daily_logs WHERE space_id=? ORDER BY log_date,habit_id").bind(spaceId).all();
+export async function readHabitLogs(db: D1Database, spaceId: number, from?: string, to?: string): Promise<TempoState["logs"]> {
+  const range = from && to ? " AND log_date BETWEEN ? AND ?" : from ? " AND log_date>=?" : to ? " AND log_date<=?" : "";
+  const result = await db.prepare(`SELECT * FROM habit_daily_logs WHERE space_id=?${range} ORDER BY log_date,habit_id`).bind(spaceId,...(from&&to?[from,to]:from?[from]:to?[to]:[])).all();
   const logs: TempoState["logs"] = {};
   for (const row of rows(result)) { const date=s(row.log_date), id=habitLogKey(n(row.habit_id)); logs[date] ||= {}; logs[date][id]={name:s(row.name_snapshot),color:s(row.color_snapshot),type:s(row.kind_snapshot),goal:n(row.goal_snapshot,1),value:n(row.value),done:b(row.done)}; }
   return logs;
@@ -53,12 +54,17 @@ function recentNutritionIds(recent: Row[]) {
   };
 }
 
-export async function readFoodLogs(db: D1Database, spaceId: number): Promise<Pick<TempoState,"foodLogs"|"recentFoodIds"|"recentMealIds">> {
-  const result = await db.prepare("SELECT * FROM food_log_entries WHERE space_id=? ORDER BY log_date,logged_at,id").bind(spaceId).all();
+export async function readFoodLogs(db: D1Database, spaceId: number, from?: string, to?: string): Promise<Pick<TempoState,"foodLogs"|"recentFoodIds"|"recentMealIds">> {
+  const range = from && to ? " AND log_date BETWEEN ? AND ?" : from ? " AND log_date>=?" : to ? " AND log_date<=?" : "";
+  const bindings = from&&to?[from,to]:from?[from]:to?[to]:[];
+  const [result,recentFoods,recentMeals] = await db.batch([
+    db.prepare(`SELECT * FROM food_log_entries WHERE space_id=?${range} ORDER BY log_date,logged_at,id`).bind(spaceId,...bindings),
+    db.prepare("SELECT food_id FROM food_log_entries WHERE space_id=? AND meal_id IS NULL AND food_id IS NOT NULL GROUP BY food_id ORDER BY MAX(logged_at) DESC LIMIT 6").bind(spaceId),
+    db.prepare("SELECT meal_id FROM food_log_entries WHERE space_id=? AND meal_id IS NOT NULL GROUP BY meal_id ORDER BY MAX(logged_at) DESC LIMIT 6").bind(spaceId)
+  ]);
   const foodLogs: TempoState["foodLogs"] = {};
   for (const row of rows(result)) { const date=s(row.log_date); foodLogs[date] ||= []; foodLogs[date].push({id:n(row.id),foodId:row.food_id==null?"":n(row.food_id),mealId:row.meal_id==null?"":n(row.meal_id),servingSize:n(row.serving_size,1),loggedAt:n(row.logged_at),mealTitle:s(row.meal_title_snapshot),snapshot:{title:s(row.title_snapshot),servingSize:n(row.serving_size_snapshot,1),servingUnit:s(row.serving_unit_snapshot,"g"),calories:n(row.calories_snapshot),carbs:n(row.carbs_snapshot),protein:n(row.protein_snapshot),fats:n(row.fats_snapshot),fibre:n(row.fibre_snapshot)}}); }
-  const recent=rows(result).slice().sort((a,z)=>n(z.logged_at)-n(a.logged_at));
-  return {foodLogs,...recentNutritionIds(recent)};
+  return {foodLogs,recentFoodIds:rows(recentFoods).map(row=>String(n(row.food_id))),recentMealIds:rows(recentMeals).map(row=>String(n(row.meal_id)))};
 }
 
 export function readNutritionGoal(space: SpaceRow): TempoState["nutritionGoal"] {

@@ -98,6 +98,12 @@ describe("private areas", () => {
     const mealRelationship = foodLogForeignKeys.results.filter(key => key.table === "meals").sort((a,b) => a.seq-b.seq);
     expect(foodRelationship.map(key => [key.from,key.to])).toEqual([["space_id","space_id"],["food_id","id"]]);
     expect(mealRelationship.map(key => [key.from,key.to])).toEqual([["space_id","space_id"],["meal_id","id"]]);
+    const foodLogIndexes = await env.DB.prepare("PRAGMA index_list(food_log_entries)").all<{name:string}>();
+    expect(foodLogIndexes.results.map(index=>index.name)).toEqual(expect.arrayContaining(["idx_food_logs_recent_food","idx_food_logs_recent_meal"]));
+    const recentFoodPlan = await env.DB.prepare("EXPLAIN QUERY PLAN SELECT food_id FROM food_log_entries WHERE space_id=? AND meal_id IS NULL AND food_id IS NOT NULL GROUP BY food_id ORDER BY MAX(logged_at) DESC LIMIT 6").bind(1).all<{detail:string}>();
+    const recentMealPlan = await env.DB.prepare("EXPLAIN QUERY PLAN SELECT meal_id FROM food_log_entries WHERE space_id=? AND meal_id IS NOT NULL GROUP BY meal_id ORDER BY MAX(logged_at) DESC LIMIT 6").bind(1).all<{detail:string}>();
+    expect(recentFoodPlan.results.map(row=>row.detail).join(" ")).toContain("idx_food_logs_recent_food");
+    expect(recentMealPlan.results.map(row=>row.detail).join(" ")).toContain("idx_food_logs_recent_meal");
     expect(schema.results.some(table => table.name === "muscle_groups")).toBe(false);
     expect(schema.results.find(table => table.name === "session_exercise_allocations")!.sql).not.toContain("muscle_id");
     expect(schema.results.find(table => table.name === "mesocycles")!.sql).not.toContain("archived");
@@ -545,6 +551,45 @@ describe("private areas", () => {
     const loadedHabits = await (await SELF.fetch("https://tempo.test/api/habits", { headers: auth(key) })).json() as { data: unknown[] };
     expect(loadedTimers.data).toHaveLength(1);
     expect(loadedHabits.data).toHaveLength(1);
+  });
+
+  it("loads recent logs and preserves older history during focused saves", async () => {
+    const { key } = await createArea();
+    const space = await env.DB.prepare("SELECT id FROM spaces ORDER BY id DESC LIMIT 1").first<{id:number}>();
+    const habit = await env.DB.prepare("INSERT INTO habits(space_id,name,kind,goal,color,sort_order) VALUES(?,'Water','counter',8,'#123',0)").bind(space!.id).run();
+    const food = await env.DB.prepare("INSERT INTO foods(space_id,title,serving_size,serving_unit,calories,carbs,protein,fats,fibre,sort_order) VALUES(?,'Oats',40,'g',150,27,5,3,4,0)").bind(space!.id).run();
+    const habitId = Number(habit.meta.last_row_id), foodId = Number(food.meta.last_row_id);
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO habit_daily_logs(space_id,habit_id,log_date,name_snapshot,color_snapshot,kind_snapshot,goal_snapshot,value,done) VALUES(?,?,'2026-07-01','Water','#123','counter',8,2,0)").bind(space!.id,habitId),
+      env.DB.prepare("INSERT INTO habit_daily_logs(space_id,habit_id,log_date,name_snapshot,color_snapshot,kind_snapshot,goal_snapshot,value,done) VALUES(?,?,'2026-08-21','Water','#123','counter',8,3,0)").bind(space!.id,habitId),
+      env.DB.prepare("INSERT INTO food_log_entries(space_id,log_date,food_id,serving_size,logged_at,title_snapshot,serving_size_snapshot,serving_unit_snapshot,calories_snapshot,carbs_snapshot,protein_snapshot,fats_snapshot,fibre_snapshot) VALUES(?,'2026-07-01',?,40,1,'Oats',40,'g',150,27,5,3,4)").bind(space!.id,foodId),
+      env.DB.prepare("INSERT INTO food_log_entries(space_id,log_date,food_id,serving_size,logged_at,title_snapshot,serving_size_snapshot,serving_unit_snapshot,calories_snapshot,carbs_snapshot,protein_snapshot,fats_snapshot,fibre_snapshot) VALUES(?,'2026-08-21',?,40,2,'Oats',40,'g',150,27,5,3,4)").bind(space!.id,foodId)
+    ]);
+
+    const recentHabits = await (await SELF.fetch("https://tempo.test/api/habit-logs?from=2026-08-14&to=2026-08-21", { headers: auth(key) })).json() as {data:any};
+    const recentFoods = await (await SELF.fetch("https://tempo.test/api/food-logs?from=2026-08-14&to=2026-08-21", { headers: auth(key) })).json() as {data:any};
+    expect(Object.keys(recentHabits.data)).toEqual(["2026-08-21"]);
+    expect(Object.keys(recentFoods.data.foodLogs)).toEqual(["2026-08-21"]);
+
+    const habitSave = await SELF.fetch("https://tempo.test/api/habit-logs", { method:"PUT", headers:{...auth(key),"content-type":"application/json","If-Match":'"0"',Origin:"https://tempo.test"}, body:JSON.stringify(recentHabits.data) });
+    const habitRevision = (await habitSave.json() as {revision:number}).revision;
+    const foodSave = await SELF.fetch("https://tempo.test/api/food-logs", { method:"PUT", headers:{...auth(key),"content-type":"application/json","If-Match":`"${habitRevision}"`,Origin:"https://tempo.test"}, body:JSON.stringify(recentFoods.data) });
+    expect(foodSave.status,await foodSave.clone().text()).toBe(200);
+    expect(await env.DB.prepare("SELECT COUNT(*) count FROM habit_daily_logs WHERE space_id=? AND log_date='2026-07-01'").bind(space!.id).first("count")).toBe(1);
+    expect(await env.DB.prepare("SELECT COUNT(*) count FROM food_log_entries WHERE space_id=? AND log_date='2026-07-01'").bind(space!.id).first("count")).toBe(1);
+  });
+
+  it("rejects malformed or reversed log date ranges instead of returning unbounded history", async () => {
+    const { key } = await createArea();
+    for (const path of [
+      "/api/habit-logs?from=not-a-date&to=2026-08-21",
+      "/api/habit-logs?from=2026-02-30&to=2026-08-21",
+      "/api/food-logs?from=2026-08-22&to=2026-08-21"
+    ]) {
+      const response = await SELF.fetch(`https://tempo.test${path}`, { headers: auth(key) });
+      expect(response.status).toBe(422);
+      expect(await response.json()).toMatchObject({ error: { code: "validation_failed" } });
+    }
   });
 
   it("writes strength sets directly without replacing unrelated state", async () => {
