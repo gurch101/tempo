@@ -150,7 +150,7 @@ export async function readFinances(db: D1Database, spaceId: number, now = Date.n
   const [preference, holdingResult, categoryResult] = await Promise.all([
     db.prepare("SELECT timezone,finance_display_currency FROM spaces WHERE id=?").bind(spaceId).first<Row>(),
     db.prepare("SELECT id,asset_type,symbol,native_currency,display_name,quantity,allocation_category_id FROM finance_holdings WHERE space_id=? ORDER BY asset_type DESC,symbol,native_currency,id").bind(spaceId).all<Row>(),
-    db.prepare("SELECT id,name,color,target_percentage FROM finance_allocation_categories WHERE space_id=? ORDER BY name,id").bind(spaceId).all<Row>()
+    db.prepare("SELECT id,name,color,target_percentage,sort_order FROM finance_allocation_categories WHERE space_id=? ORDER BY sort_order,id").bind(spaceId).all<Row>()
   ]);
   const currency = normalizeCurrency(preference?.finance_display_currency) || "CAD";
   const today = dateInZone(now / 1000, String(preference?.timezone || "UTC"));
@@ -252,7 +252,7 @@ export async function readFinances(db: D1Database, spaceId: number, now = Date.n
     const currentValue = valuedHoldings.filter(holding => holding.allocationCategoryId === id).reduce((sum, holding) => sum + (holding.marketValue ?? 0), 0);
     const currentPercentage = allocationTotal > 0 ? currentValue / allocationTotal * 100 : 0;
     const targetPercentage = Number(row.target_percentage);
-    return { id, name: String(row.name), color: String(row.color), targetPercentage, currentValue, currentPercentage, driftPercentage: currentPercentage - targetPercentage };
+    return { id, name: String(row.name), color: String(row.color), targetPercentage, sortOrder: Number(row.sort_order), currentValue, currentPercentage, driftPercentage: currentPercentage - targetPercentage };
   });
   const unassignedValue = valuedHoldings.filter(holding => holding.allocationCategoryId === null).reduce((sum, holding) => sum + (holding.marketValue ?? 0), 0);
   const allocation = { categories, targetTotal: categories.reduce((sum, category) => sum + category.targetPercentage, 0), unassignedValue, unassignedPercentage: allocationTotal > 0 ? unassignedValue / allocationTotal * 100 : 0 };

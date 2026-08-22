@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { assertSafeProductionDbArguments, normalizeD1Export } from "../scripts/production-db-safety.mjs";
 import shellPipeline from "../scripts/pull-production-db.sh?raw";
+import packageManifestRaw from "../package.json?raw";
+
+const packageScripts = JSON.parse(packageManifestRaw).scripts;
 
 describe("production database snapshot safety", () => {
   it("allows only a read-only export against production", () => {
@@ -31,5 +34,11 @@ describe("production database snapshot safety", () => {
     expect(shellPipeline.match(/d1 execute tempo-production/g)).toHaveLength(2);
     expect(shellPipeline.match(/--local --env production/g)).toHaveLength(2);
     expect(shellPipeline).toContain("mktemp -d /tmp/tempo-production-export.XXXXXX");
+  });
+
+  it("uses the production snapshot as the only local development database", () => {
+    expect(packageScripts.dev).toBe("npm run build:client && wrangler dev --env production --local --persist-to .wrangler/production-snapshot");
+    expect(packageScripts["migrate:local"]).toBe("npm run db:migrate:production-snapshot");
+    expect(packageScripts["dev:production-snapshot"]).toBe("npm run db:pull:production && npm run db:migrate:production-snapshot && npm run dev");
   });
 });

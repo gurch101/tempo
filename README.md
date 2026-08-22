@@ -10,11 +10,12 @@ Requirements: Node.js 22+ and npm.
 
 ```sh
 npm install
+npm run db:pull:production
 npm run migrate:local
 npm run dev
 ```
 
-Wrangler prints the local URL. Opening `/` creates a private area and redirects to its capability URL. Local D1 data is kept under `.wrangler/`.
+The production pull is read-only and copies the remote database to `.wrangler/production-snapshot`. Both `migrate:local` and `dev` use that same local snapshot, so starting the regular development server preserves and reuses the pulled data. Run `npm run dev:production-snapshot` to pull, migrate, and start the server in one command. Wrangler prints the local URL.
 
 Useful checks:
 

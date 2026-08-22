@@ -119,6 +119,7 @@ if (!privateMatch) {
     async deleteFinanceHolding(id) { return (await request(`/api/finances/holdings/${encodeURIComponent(id)}`, { method: "DELETE" })).data; },
     async addAllocationCategory(category) { return (await request("/api/finances/allocation-categories", { method: "POST", body: JSON.stringify(category) })).data; },
     async updateAllocationCategory(id, category) { return (await request(`/api/finances/allocation-categories/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(category) })).data; },
+    async reorderAllocationCategories(ids) { return (await request("/api/finances/allocation-categories/order", { method: "PUT", body: JSON.stringify({ ids }) })).data; },
     async deleteAllocationCategory(id) { return (await request(`/api/finances/allocation-categories/${encodeURIComponent(id)}`, { method: "DELETE" })).data; },
     async setFinanceCurrency(currency) { return (await request("/api/finances/currency", { method: "PUT", body: JSON.stringify({ currency }) })).data; },
     async refreshFinances(force = false) { return (await request(`/api/finances/refresh${force ? "?force=true" : ""}`, { method: "POST" })).data; },

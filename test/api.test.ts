@@ -84,6 +84,7 @@ describe("private areas", () => {
     expect(spaces.sql).toContain("walkthrough_status TEXT");
     expect(schema.results.some(table => table.name === "finance_preferences")).toBe(false);
     expect(schema.results.find(table => table.name === "finance_holdings")!.sql).not.toContain("asset_key");
+    expect(schema.results.find(table => table.name === "finance_allocation_categories")!.sql).toContain("sort_order INTEGER");
     for (const name of ["finance_quotes", "finance_daily_prices", "finance_fx_quotes", "finance_daily_fx_rates"]) {
       const sql=schema.results.find(table => table.name === name)!.sql;
       expect(sql,name).not.toContain("space_id");
@@ -458,6 +459,14 @@ describe("private areas", () => {
     expect(portfolio).toMatchObject({ currency: "CAD", totalValue: 2530 });
     expect(portfolio.allocation).toMatchObject({ targetTotal: 60, categories: [expect.objectContaining({ id: equitiesId, name: "Equities", targetPercentage: 60, currentValue: 280 })] });
     expect(portfolio.allocation.categories[0].currentPercentage).toBeCloseTo(11.07, 2);
+    const bondsResponse = await mutate("/api/finances/allocation-categories", { name: "Bonds", color: "#4c91a8", targetPercentage: 40 });
+    expect(bondsResponse.status).toBe(201);
+    const bondsPayload = await bondsResponse.json() as { data: { allocation: { categories: Array<{ id: number; name: string }> } } };
+    const bondsId = bondsPayload.data.allocation.categories.find(category => category.name === "Bonds")!.id;
+    const reordered = await SELF.fetch("https://tempo.test/api/finances/allocation-categories/order", { method: "PUT", headers: { ...auth(first.key), Origin: "https://tempo.test", "content-type": "application/json" }, body: JSON.stringify({ ids: [bondsId, equitiesId] }) });
+    expect(reordered.status).toBe(200);
+    expect(await reordered.json()).toMatchObject({ data: { allocation: { categories: [{ id: bondsId, sortOrder: 0 }, { id: equitiesId, sortOrder: 1 }] } } });
+    expect((await SELF.fetch("https://tempo.test/api/finances/allocation-categories/order", { method: "PUT", headers: { ...auth(first.key), Origin: "https://tempo.test", "content-type": "application/json" }, body: JSON.stringify({ ids: [equitiesId] }) })).status).toBe(422);
     expect(portfolio.changes.yesterday).toMatchObject({ value: 2346, change: 184 });
     expect(portfolio.changes.month).toMatchObject({ value: 2530, change: 0, fallbackLabels: ["AAPL", "Emergency fund", "USD cash"] });
     expect(portfolio.holdings.filter(holding => holding.type === "CASH" && holding.currency === "USD")).toHaveLength(2);

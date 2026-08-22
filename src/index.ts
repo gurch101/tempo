@@ -404,8 +404,22 @@ app.post("/api/finances/allocation-categories", async c => {
   if (!Number.isFinite(targetPercentage) || targetPercentage < 0 || targetPercentage > 100) return error(c, 422, "validation_failed", "Target percentage must be between 0 and 100.", { targetPercentage: "Enter a percentage from 0 to 100." });
   const existing = await c.env.DB.prepare("SELECT id FROM finance_allocation_categories WHERE space_id=? AND name=? COLLATE NOCASE").bind(c.var.space.id, name).first();
   if (existing) return error(c, 409, "allocation_category_exists", "That allocation category already exists.");
-  await c.env.DB.prepare("INSERT INTO finance_allocation_categories(space_id,name,color,target_percentage) VALUES(?,?,?,?)").bind(c.var.space.id, name, color, targetPercentage).run();
+  await c.env.DB.prepare("INSERT INTO finance_allocation_categories(space_id,name,color,target_percentage,sort_order) VALUES(?,?,?,?,(SELECT COALESCE(MAX(sort_order),-1)+1 FROM finance_allocation_categories WHERE space_id=?))").bind(c.var.space.id, name, color, targetPercentage, c.var.space.id).run();
   return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision }, 201);
+});
+
+app.put("/api/finances/allocation-categories/order", async c => {
+  const body = await c.req.json<{ ids?: unknown }>().catch(() => null);
+  const ids = Array.isArray(body?.ids) ? body.ids : null;
+  if (!ids || ids.some(id => !Number.isInteger(id) || Number(id) <= 0) || new Set(ids).size !== ids.length)
+    return error(c, 422, "validation_failed", "Provide each allocation category exactly once in the desired order.");
+  const stored = await c.env.DB.prepare("SELECT id FROM finance_allocation_categories WHERE space_id=? ORDER BY id").bind(c.var.space.id).all<{ id: number }>();
+  const storedIds = (stored.results || []).map(row => Number(row.id)).sort((left, right) => left - right);
+  const requestedIds = ids.map(Number);
+  if (storedIds.length !== requestedIds.length || [...requestedIds].sort((left, right) => left - right).some((id, index) => id !== storedIds[index]))
+    return error(c, 422, "validation_failed", "Provide each allocation category exactly once in the desired order.");
+  if (requestedIds.length) await c.env.DB.batch(requestedIds.map((id, index) => c.env.DB.prepare("UPDATE finance_allocation_categories SET sort_order=? WHERE id=? AND space_id=?").bind(index, id, c.var.space.id)));
+  return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
 });
 
 app.put("/api/finances/allocation-categories/:id", async c => {

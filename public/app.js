@@ -130,6 +130,7 @@ let financeLoadPromise = null;
 let financeRefreshing = false;
 let financeRefreshPromise = null;
 let financeError = "";
+let draggedAllocationCategoryId = null;
 let libraryTab = "foods";
 let strengthWeek = null;
 let activeStrengthSessionId = null;
@@ -1776,8 +1777,15 @@ function financePercent(value, digits = 1) {
 
 function financeAllocationGroups(holdings) {
   const categories = financeData?.allocation?.categories || [];
-  const groups = categories.map(category => ({ ...category, holdings: holdings.filter(holding => holding.allocationCategoryId === category.id), unassigned: false }));
-  const unassignedHoldings = holdings.filter(holding => holding.allocationCategoryId == null);
+  const byDescendingMarketValue = (left, right) => {
+    const leftValue = left.marketValue == null || !Number.isFinite(Number(left.marketValue)) ? null : Number(left.marketValue);
+    const rightValue = right.marketValue == null || !Number.isFinite(Number(right.marketValue)) ? null : Number(right.marketValue);
+    if (leftValue == null) return rightValue == null ? 0 : 1;
+    if (rightValue == null) return -1;
+    return rightValue - leftValue;
+  };
+  const groups = categories.map(category => ({ ...category, holdings: holdings.filter(holding => holding.allocationCategoryId === category.id).sort(byDescendingMarketValue), unassigned: false }));
+  const unassignedHoldings = holdings.filter(holding => holding.allocationCategoryId == null).sort(byDescendingMarketValue);
   if (unassignedHoldings.length) groups.push({ id: null, name: "Unassigned", color: null, targetPercentage: null, currentPercentage: financeData?.allocation?.unassignedPercentage || 0, driftPercentage: financeData?.allocation?.unassignedPercentage || 0, holdings: unassignedHoldings, unassigned: true });
   return groups.filter(group => group.holdings.length).map(group => {
     const marketValues = group.holdings.map(holding => holding.marketValue);
@@ -1909,7 +1917,19 @@ function renderAllocationLibrary() {
   const categories = financeData?.allocation?.categories || [];
   const targetTotal = financeData?.allocation?.targetTotal || 0;
   $("#allocationTargetSummary").innerHTML = `<div><span>Target plan</span><strong>${financePercent(targetTotal)}</strong></div><p class="${Math.abs(targetTotal - 100) < .05 ? "is-complete" : ""}">${Math.abs(targetTotal - 100) < .05 ? "Your targets add up to 100%." : `${financePercent(Math.abs(100 - targetTotal))} ${targetTotal < 100 ? "remains to allocate" : "over-allocated"}. Adjust targets until the plan totals 100%.`}</p>`;
-  grid.innerHTML = categories.length ? categories.map(category => `<article class="food-card allocation-category-card" data-allocation-category-id="${category.id}" style="--allocation-color:${category.color}"><div class="food-card-top"><div><span><i></i>Allocation category</span><h2>${escapeHtml(category.name)}</h2></div><button class="menu-button" type="button" data-allocation-action="menu" aria-label="Options for ${escapeHtml(category.name)}">${icon("ellipsis", "…")}</button></div><div class="menu food-menu"><button type="button" data-allocation-action="edit">Edit category</button><button class="danger" type="button" data-allocation-action="delete">Delete category</button></div><div class="allocation-card-target"><strong>${financePercent(category.targetPercentage)}</strong><span>target</span></div><div class="allocation-card-current"><span>Current allocation</span><strong>${financePercent(category.currentPercentage)}</strong><small>${financeMoney(category.currentValue)}</small></div></article>`).join("") : `<div class="empty-nutrition-state"><span>${icon("chart-pie", "◔")}</span><h2>Build your allocation plan</h2><p>Create categories for the asset groups you want to target.</p><button class="primary-button" type="button" data-new-allocation-category>New category</button></div>`;
+  grid.innerHTML = categories.length ? categories.map(category => `<article class="food-card allocation-category-card" data-allocation-category-id="${category.id}" style="--allocation-color:${category.color}" draggable="false"><div class="food-card-top"><div><span><i></i>Allocation category</span><h2>${escapeHtml(category.name)}</h2></div><div class="allocation-card-tools"><span class="drag-handle" data-allocation-drag-handle role="button" tabindex="0" aria-label="Reorder ${escapeHtml(category.name)}" title="Drag to reorder">${icon("grip-vertical", "⋮")}</span><button class="menu-button" type="button" data-allocation-action="menu" aria-label="Options for ${escapeHtml(category.name)}">${icon("ellipsis", "…")}</button></div></div><div class="menu food-menu"><button type="button" data-allocation-action="edit">Edit category</button><button class="danger" type="button" data-allocation-action="delete">Delete category</button></div><div class="allocation-card-target"><strong>${financePercent(category.targetPercentage)}</strong><span>target</span></div><div class="allocation-card-current"><span>Current allocation</span><strong>${financePercent(category.currentPercentage)}</strong><small>${financeMoney(category.currentValue)}</small></div></article>`).join("") : `<div class="empty-nutrition-state"><span>${icon("chart-pie", "◔")}</span><h2>Build your allocation plan</h2><p>Create categories for the asset groups you want to target.</p><button class="primary-button" type="button" data-new-allocation-category>New category</button></div>`;
+}
+
+async function saveAllocationCategoryOrder(ids, focusId = null) {
+  try {
+    financeData = await window.tempoServer.reorderAllocationCategories(ids);
+    renderAllocationLibrary(); renderFinances();
+    if (focusId != null) requestAnimationFrame(() => $(`[data-allocation-category-id="${focusId}"] [data-allocation-drag-handle]`)?.focus());
+  } catch (error) {
+    financeData = await window.tempoServer.getFinances().catch(() => financeData);
+    renderAllocationLibrary(); renderFinances();
+    toast(error.message || "Could not reorder allocation categories.");
+  }
 }
 
 function renderAllocationColorOptions(selectedColor) {
@@ -3474,6 +3494,54 @@ $("#allocationLibraryGrid").addEventListener("click", event => {
   if (action === "menu") { const menu = $(".food-menu", card); $$(".menu.open").filter(item => item !== menu).forEach(item => item.classList.remove("open")); menu.classList.toggle("open"); }
   if (action === "edit") openAllocationCategoryDialog(category);
   if (action === "delete") deleteAllocationCategory(category);
+});
+$("#allocationLibraryGrid").addEventListener("keydown", event => {
+  const handle = event.target.closest("[data-allocation-drag-handle]");
+  if (!handle || !["ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown"].includes(event.key)) return;
+  event.preventDefault();
+  const card = handle.closest("[data-allocation-category-id]");
+  const cards = $$("[data-allocation-category-id]", $("#allocationLibraryGrid"));
+  const currentIndex = cards.indexOf(card);
+  const nextIndex = Math.max(0, Math.min(cards.length - 1, currentIndex + (["ArrowLeft", "ArrowUp"].includes(event.key) ? -1 : 1)));
+  if (currentIndex === nextIndex) return;
+  if (nextIndex < currentIndex) cards[nextIndex].before(card); else cards[nextIndex].after(card);
+  saveAllocationCategoryOrder($$("[data-allocation-category-id]", $("#allocationLibraryGrid")).map(item => Number(item.dataset.allocationCategoryId)), Number(card.dataset.allocationCategoryId));
+});
+$("#allocationLibraryGrid").addEventListener("pointerdown", event => {
+  const handle = event.target.closest("[data-allocation-drag-handle]");
+  if (handle) handle.closest("[data-allocation-category-id]").draggable = true;
+});
+$("#allocationLibraryGrid").addEventListener("pointerup", event => {
+  if (!draggedAllocationCategoryId) event.target.closest("[data-allocation-category-id]")?.setAttribute("draggable", "false");
+});
+$("#allocationLibraryGrid").addEventListener("dragstart", event => {
+  const card = event.target.closest("[data-allocation-category-id]");
+  if (!card || !card.draggable) { event.preventDefault(); return; }
+  draggedAllocationCategoryId = card.dataset.allocationCategoryId;
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", draggedAllocationCategoryId);
+  requestAnimationFrame(() => card.classList.add("dragging"));
+});
+$("#allocationLibraryGrid").addEventListener("dragover", event => {
+  if (!draggedAllocationCategoryId) return;
+  event.preventDefault(); event.dataTransfer.dropEffect = "move";
+  const grid = $("#allocationLibraryGrid");
+  const dragged = $(`[data-allocation-category-id="${draggedAllocationCategoryId}"]`, grid);
+  const target = event.target.closest("[data-allocation-category-id]");
+  if (!dragged || target === dragged) return;
+  if (target) {
+    const cards = $$("[data-allocation-category-id]", grid);
+    if (cards.indexOf(dragged) < cards.indexOf(target)) target.after(dragged); else target.before(dragged);
+  }
+});
+$("#allocationLibraryGrid").addEventListener("drop", event => { if (draggedAllocationCategoryId) event.preventDefault(); });
+$("#allocationLibraryGrid").addEventListener("dragend", event => {
+  const grid = $("#allocationLibraryGrid");
+  const card = event.target.closest("[data-allocation-category-id]");
+  if (card) { card.classList.remove("dragging"); card.draggable = false; }
+  const ids = $$("[data-allocation-category-id]", grid).map(item => Number(item.dataset.allocationCategoryId));
+  draggedAllocationCategoryId = null;
+  if (ids.length) saveAllocationCategoryOrder(ids);
 });
 $("#financesContent").addEventListener("click", event => {
   if (event.target.closest("[data-finance-add]")) { openFinanceHoldingDialog(); return; }
