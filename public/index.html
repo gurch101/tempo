@@ -188,8 +188,18 @@
         <section id="financesView" class="view" aria-labelledby="financesHeading">
           <div class="page-heading finances-page-heading">
             <div><h1 id="financesHeading">Finances</h1></div>
+            <button class="secondary-button" id="openAllocationLibraryButton" type="button">Allocation categories</button>
           </div>
           <div id="financesContent" aria-live="polite"><div class="cardio-loading">Loading finances</div></div>
+        </section>
+
+        <section id="allocationLibraryView" class="view" aria-labelledby="allocationLibraryHeading">
+          <div class="page-heading allocation-library-heading">
+            <div><nav class="page-breadcrumb" aria-label="Breadcrumb"><button id="backToFinancesButton" type="button">Finances</button><span aria-hidden="true">/</span><span aria-current="page">Allocation categories</span></nav><h1 id="allocationLibraryHeading">Allocation categories</h1><p>Set the target mix for your portfolio and use colors to identify each asset group.</p></div>
+            <button class="primary-button" id="newAllocationCategoryButton" type="button"><i data-lucide="plus" aria-hidden="true">+</i>New</button>
+          </div>
+          <div class="allocation-target-summary" id="allocationTargetSummary"></div>
+          <div class="food-library-grid allocation-library-grid" id="allocationLibraryGrid"></div>
         </section>
 
         <section id="workoutLibraryView" class="view" aria-labelledby="workoutLibraryHeading">
@@ -279,6 +289,7 @@
       <form id="financeHoldingForm" class="finance-add-form">
         <h2>Add holding</h2>
         <label>Asset type<select id="financeHoldingType"><option value="STOCK">Stock</option><option value="CASH">Cash</option></select></label>
+        <label>Allocation category<select id="financeAllocationCategory"><option value="">Unassigned</option></select></label>
         <label id="financeTickerField">Ticker<input id="financeTicker" maxlength="32" placeholder="e.g. AAPL" autocomplete="off" /></label>
         <label id="financeCashCurrencyField" hidden>Currency<select id="financeCashCurrency"><option>CAD</option><option>USD</option><option>EUR</option><option>GBP</option><option>JPY</option><option>AUD</option><option>NZD</option><option>CHF</option></select></label>
         <label id="financeCashNameField" hidden>Display name<input id="financeCashName" maxlength="60" placeholder="e.g. Emergency fund" autocomplete="off" /></label>
@@ -293,12 +304,25 @@
         <h2>Edit holding</h2>
         <input id="financeEditHoldingId" type="hidden" />
         <label>Asset type<select id="financeEditHoldingType"><option value="STOCK">Stock</option><option value="CASH">Cash</option></select></label>
+        <label>Allocation category<select id="financeEditAllocationCategory"><option value="">Unassigned</option></select></label>
         <label id="financeEditTickerField">Ticker<input id="financeEditTicker" maxlength="32" placeholder="e.g. AAPL" autocomplete="off" /></label>
         <label id="financeEditCashCurrencyField" hidden>Currency<select id="financeEditCashCurrency"><option>CAD</option><option>USD</option><option>EUR</option><option>GBP</option><option>JPY</option><option>AUD</option><option>NZD</option><option>CHF</option></select></label>
         <label id="financeEditCashNameField" hidden>Display name<input id="financeEditCashName" maxlength="60" placeholder="e.g. Emergency fund" autocomplete="off" /></label>
         <label>Quantity<input id="financeEditQuantity" type="number" min="0.000001" step="any" placeholder="0" required /></label>
         <p class="form-error" id="financeEditHoldingError" role="alert"></p>
         <div class="dialog-actions"><button class="primary-button" type="submit">Save holding</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="allocationCategoryDialog">
+      <form id="allocationCategoryForm" class="finance-add-form">
+        <h2 id="allocationCategoryDialogHeading">New allocation category</h2>
+        <input id="allocationCategoryId" type="hidden" />
+        <label>Category name<input id="allocationCategoryName" maxlength="40" placeholder="e.g. Canadian equity" autocomplete="off" required /></label>
+        <label>Target percentage<input id="allocationCategoryTarget" type="number" min="0" max="100" step="0.1" placeholder="0" required /></label>
+        <fieldset class="allocation-color-fieldset"><legend>Color</legend><div class="allocation-color-options" id="allocationColorOptions"></div></fieldset>
+        <p class="form-error" id="allocationCategoryError" role="alert"></p>
+        <div class="dialog-actions"><button class="primary-button" type="submit">Save category</button></div>
       </form>
     </dialog>
 

@@ -1770,6 +1770,49 @@ function financeChangeCard(label, comparison, position) {
   return `<div class="cardio-summary-card" role="group" aria-label="${position} of 4, ${escapeHtml(label)}"><span>${escapeHtml(label)}</span><strong class="${className}">${change == null ? "—" : `${change > 0 ? "+" : ""}${financeMoney(change)}`}</strong><small>${detail}</small></div>`;
 }
 
+function financePercent(value, digits = 1) {
+  return `${new Intl.NumberFormat(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(Number(value) || 0)}%`;
+}
+
+function financeAllocationGroups(holdings) {
+  const categories = financeData?.allocation?.categories || [];
+  const groups = categories.map(category => ({ ...category, holdings: holdings.filter(holding => holding.allocationCategoryId === category.id), unassigned: false }));
+  const unassignedHoldings = holdings.filter(holding => holding.allocationCategoryId == null);
+  if (unassignedHoldings.length) groups.push({ id: null, name: "Unassigned", color: null, targetPercentage: null, currentPercentage: financeData?.allocation?.unassignedPercentage || 0, driftPercentage: financeData?.allocation?.unassignedPercentage || 0, holdings: unassignedHoldings, unassigned: true });
+  return groups.filter(group => group.holdings.length).map(group => {
+    const marketValues = group.holdings.map(holding => holding.marketValue);
+    const previousValues = group.holdings.map(holding => holding.previousMarketValue);
+    const marketValue = marketValues.every(value => value != null) ? marketValues.reduce((sum, value) => sum + Number(value), 0) : null;
+    const previousMarketValue = previousValues.every(value => value != null) ? previousValues.reduce((sum, value) => sum + Number(value), 0) : null;
+    const valueChange = marketValue == null || previousMarketValue == null ? null : marketValue - previousMarketValue;
+    const percentChange = valueChange == null || !previousMarketValue ? null : valueChange / previousMarketValue * 100;
+    return { ...group, marketValue, previousMarketValue, valueChange, percentChange };
+  });
+}
+
+function renderFinanceAllocationGroupRow(group) {
+  return `<tr class="finance-allocation-group-row"><th><span class="finance-group-name ${group.unassigned ? "is-unassigned" : ""}" style="${group.color ? `--allocation-color:${group.color}` : ""}"><i></i>${escapeHtml(group.name)}</span></th><td colspan="2"></td><td><strong>${financeMoney(group.marketValue)}</strong><small>${financePercent(group.currentPercentage)} of portfolio</small></td><td class="finance-holding-change">${financeHoldingChangeMarkup(group)}</td><td></td></tr>`;
+}
+
+function renderFinanceAllocationGroupCards(group) {
+  return `<section class="finance-holding-card-group"><header><div><span class="finance-group-name ${group.unassigned ? "is-unassigned" : ""}" style="${group.color ? `--allocation-color:${group.color}` : ""}"><i></i>${escapeHtml(group.name)}</span></div><div class="finance-group-card-metrics"><span><small>Market value</small><strong>${financeMoney(group.marketValue)}</strong></span><span class="finance-holding-change"><small>Change</small>${financeHoldingChangeMarkup(group)}</span></div></header>${group.holdings.map(renderFinanceHoldingCard).join("")}</section>`;
+}
+
+function allocationSegments(categories, valueKey, includeUnassigned = false) {
+  const segments = categories.map(category => `<i style="--allocation-color:${category.color};--allocation-width:${Math.max(0, Math.min(100, Number(category[valueKey]) || 0))}%" title="${escapeHtml(category.name)}: ${financePercent(category[valueKey])}"></i>`);
+  if (includeUnassigned && financeData.allocation.unassignedPercentage > 0) segments.push(`<i class="is-unassigned" style="--allocation-width:${Math.min(100, financeData.allocation.unassignedPercentage)}%" title="Unassigned: ${financePercent(financeData.allocation.unassignedPercentage)}"></i>`);
+  return segments.join("");
+}
+
+function renderAllocationDrift() {
+  const allocation = financeData?.allocation;
+  const categories = allocation?.categories || [];
+  if (!categories.length) return `<section class="cardio-panel allocation-drift-panel"><div class="cardio-panel-heading"><div><h2>Asset allocation</h2></div><button class="secondary-button" type="button" data-finance-allocation-library>Set up categories</button></div><div class="finance-empty allocation-empty"><span>${icon("chart-pie", "◔")}</span><h3>No allocation targets yet</h3><p>Create categories, set their target percentages, then assign each holding.</p></div></section>`;
+  return `<section class="cardio-panel allocation-drift-panel"><div class="cardio-panel-heading"><div><h2>Allocation drift</h2><p>Current market value compared with your target mix.</p></div></div>
+    <div class="allocation-comparison"><div><span>Current</span><div class="allocation-segmented-bar">${allocationSegments(categories, "currentPercentage", true)}</div></div><div><span>Target</span><div class="allocation-segmented-bar">${allocationSegments(categories, "targetPercentage")}</div></div></div>
+    <div class="allocation-drift-list">${categories.map(category => { const drift = category.driftPercentage; const driftClass = Math.abs(drift) < .05 ? "is-even" : drift > 0 ? "is-over" : "is-under"; return `<div class="allocation-drift-row"><i style="--allocation-color:${category.color}"></i><strong>${escapeHtml(category.name)}</strong><span>${financeMoney(category.currentValue)}</span><span>${financePercent(category.currentPercentage)} current</span><span>${financePercent(category.targetPercentage)} target</span><b class="${driftClass}">${drift > .05 ? "+" : ""}${financePercent(drift)}</b></div>`; }).join("")}${allocation.unassignedPercentage > .05 ? `<div class="allocation-drift-row is-unassigned"><i></i><strong>Unassigned</strong><span>${financeMoney(allocation.unassignedValue)}</span><span>${financePercent(allocation.unassignedPercentage)} current</span><span>No target</span><b class="is-over">+${financePercent(allocation.unassignedPercentage)}</b></div>` : ""}</div></section>`;
+}
+
 function renderFinanceHolding(holding) {
   const defaultCashLabel = `${holding.currency} cash`;
   const label = holding.type === "CASH" ? holding.name || defaultCashLabel : holding.symbol;
@@ -1802,11 +1845,13 @@ function renderFinances() {
   if (financeError && !financeData) { content.innerHTML = `<div class="cardio-error">${escapeHtml(financeError)}</div>`; return; }
   if (!financeData) return;
   const holdings = financeData.holdings || [];
+  const allocationGroups = financeAllocationGroups(holdings);
   const syncMeta = financeData.lastRefreshedAt ? `Prices refreshed ${escapeHtml(cardioDateTimeFormatter.format(new Date(financeData.lastRefreshedAt)))}` : "Prices have not been refreshed yet";
   content.innerHTML = `<div class="finance-sync-meta" role="status" aria-live="polite">${financeRefreshing ? `<span class="health-sync-state is-syncing">${icon("refresh-cw", "↻")}Refreshing market prices…</span>` : ""}<span>${syncMeta}</span>${financeError ? `<span class="finance-sync-error">${escapeHtml(financeError)}</span>` : ""}</div>
     <div class="finance-summary-grid" role="region" aria-roledescription="carousel" aria-label="Portfolio summary. Swipe or use the left and right arrow keys to view all four cards." tabindex="0"><div class="cardio-summary-card finance-total-card" role="group" aria-label="1 of 4, total portfolio value"><span>Total portfolio value</span><strong>${financeMoney(financeData.totalValue)}</strong></div>${financeChangeCard("Since yesterday", financeData.changes?.yesterday, 2)}${financeChangeCard("Since last week", financeData.changes?.week, 3)}${financeChangeCard("Since last month", financeData.changes?.month, 4)}</div>
+    ${renderAllocationDrift()}
     <div class="finance-layout">
-      <section class="cardio-panel finance-holdings-panel"><div class="cardio-panel-heading"><div><h2>Holdings</h2></div><button class="secondary-button" type="button" data-finance-add>${icon("plus", "+")}Add holding</button></div>${holdings.length ? `<div class="finance-table-wrap"><table class="finance-table"><thead><tr><th>Asset</th><th>Price</th><th>Quantity</th><th>Market value</th><th>Change</th><th></th></tr></thead><tbody>${holdings.map(renderFinanceHolding).join("")}</tbody></table></div><div class="finance-holding-cards">${holdings.map(renderFinanceHoldingCard).join("")}</div>` : `<div class="finance-empty"><span>${icon("wallet-cards", "$")}</span><h3>No holdings yet</h3><p>Add a stock ticker or cash balance to start your portfolio.</p></div>`}</section>
+      <section class="cardio-panel finance-holdings-panel"><div class="cardio-panel-heading"><div><h2>Holdings</h2></div><button class="secondary-button" type="button" data-finance-add>${icon("plus", "+")}Add holding</button></div>${holdings.length ? `<div class="finance-table-wrap"><table class="finance-table"><thead><tr><th>Asset</th><th>Price</th><th>Quantity</th><th>Market value</th><th>Change</th><th></th></tr></thead><tbody>${allocationGroups.map(group => `${renderFinanceAllocationGroupRow(group)}${group.holdings.map(renderFinanceHolding).join("")}`).join("")}</tbody></table></div><div class="finance-holding-cards">${allocationGroups.map(renderFinanceAllocationGroupCards).join("")}</div>` : `<div class="finance-empty"><span>${icon("wallet-cards", "$")}</span><h3>No holdings yet</h3><p>Add a stock ticker or cash balance to start your portfolio.</p></div>`}</section>
     </div>`;
 }
 
@@ -1820,12 +1865,12 @@ function renderFinanceSettings() {
 
 async function loadFinances(force = false) {
   if (financeLoading) return financeLoadPromise;
-  if (financeData && !force) { renderFinances(); renderFinanceSettings(); return financeData; }
+  if (financeData && !force) { renderFinances(); renderFinanceSettings(); renderAllocationLibrary(); return financeData; }
   financeLoading = true; financeError = ""; renderFinances(); renderFinanceSettings();
   financeLoadPromise = (async () => {
     try { financeData = await window.tempoServer.getFinances(); }
     catch (error) { financeError = error.message || "Tempo could not load portfolio data from D1."; }
-    finally { financeLoading = false; financeLoadPromise = null; renderFinances(); renderFinanceSettings(); }
+    finally { financeLoading = false; financeLoadPromise = null; renderFinances(); renderFinanceSettings(); renderAllocationLibrary(); }
     return financeData;
   })();
   return financeLoadPromise;
@@ -1851,10 +1896,65 @@ async function visitFinances() {
   if (activeView === "financesView" && !isRecentlySynced(financeData?.lastRefreshedAt)) await refreshFinancePrices();
 }
 
+function renderFinanceCategoryOptions(select, selectedId = null) {
+  const categories = financeData?.allocation?.categories || [];
+  select.innerHTML = `<option value="">Unassigned</option>${categories.map(category => `<option value="${category.id}">${escapeHtml(category.name)}</option>`).join("")}`;
+  select.value = selectedId == null ? "" : String(selectedId);
+}
+
+function renderAllocationLibrary() {
+  const grid = $("#allocationLibraryGrid");
+  if (!grid) return;
+  if (financeLoading && !financeData) { grid.innerHTML = `<div class="cardio-loading">Loading allocation categories</div>`; return; }
+  const categories = financeData?.allocation?.categories || [];
+  const targetTotal = financeData?.allocation?.targetTotal || 0;
+  $("#allocationTargetSummary").innerHTML = `<div><span>Target plan</span><strong>${financePercent(targetTotal)}</strong></div><p class="${Math.abs(targetTotal - 100) < .05 ? "is-complete" : ""}">${Math.abs(targetTotal - 100) < .05 ? "Your targets add up to 100%." : `${financePercent(Math.abs(100 - targetTotal))} ${targetTotal < 100 ? "remains to allocate" : "over-allocated"}. Adjust targets until the plan totals 100%.`}</p>`;
+  grid.innerHTML = categories.length ? categories.map(category => `<article class="food-card allocation-category-card" data-allocation-category-id="${category.id}" style="--allocation-color:${category.color}"><div class="food-card-top"><div><span><i></i>Allocation category</span><h2>${escapeHtml(category.name)}</h2></div><button class="menu-button" type="button" data-allocation-action="menu" aria-label="Options for ${escapeHtml(category.name)}">${icon("ellipsis", "…")}</button></div><div class="menu food-menu"><button type="button" data-allocation-action="edit">Edit category</button><button class="danger" type="button" data-allocation-action="delete">Delete category</button></div><div class="allocation-card-target"><strong>${financePercent(category.targetPercentage)}</strong><span>target</span></div><div class="allocation-card-current"><span>Current allocation</span><strong>${financePercent(category.currentPercentage)}</strong><small>${financeMoney(category.currentValue)}</small></div></article>`).join("") : `<div class="empty-nutrition-state"><span>${icon("chart-pie", "◔")}</span><h2>Build your allocation plan</h2><p>Create categories for the asset groups you want to target.</p><button class="primary-button" type="button" data-new-allocation-category>New category</button></div>`;
+}
+
+function renderAllocationColorOptions(selectedColor) {
+  const palette = financeData?.allocationColors || ["#ec5f3e", "#f0ad43", "#d9c84d", "#73a66f", "#3d8f7c", "#4c91a8", "#6179ad", "#8270a8", "#ad668d", "#9a7460"];
+  $("#allocationColorOptions").innerHTML = palette.map((color, index) => `<label><input type="radio" name="allocationColor" value="${color}" ${color === selectedColor || (!selectedColor && index === 0) ? "checked" : ""}/><span style="--swatch:${color}" aria-label="Color ${index + 1}"></span></label>`).join("");
+}
+
+function openAllocationCategoryDialog(category = null) {
+  $("#allocationCategoryForm").reset();
+  $("#allocationCategoryId").value = category?.id || "";
+  $("#allocationCategoryDialogHeading").textContent = category ? "Edit allocation category" : "New allocation category";
+  $("#allocationCategoryName").value = category?.name || "";
+  $("#allocationCategoryTarget").value = category?.targetPercentage ?? "";
+  $("#allocationCategoryError").textContent = "";
+  renderAllocationColorOptions(category?.color);
+  $("#allocationCategoryDialog").showModal();
+  $("#allocationCategoryName").focus();
+}
+
+async function saveAllocationCategory(event) {
+  event.preventDefault();
+  const id = $("#allocationCategoryId").value;
+  const body = { name: $("#allocationCategoryName").value, targetPercentage: Number($("#allocationCategoryTarget").value), color: $('input[name="allocationColor"]:checked')?.value };
+  const errorElement = $("#allocationCategoryError");
+  const submit = $('button[type="submit"]', event.currentTarget);
+  errorElement.textContent = ""; submit.disabled = true;
+  try {
+    financeData = id ? await window.tempoServer.updateAllocationCategory(id, body) : await window.tempoServer.addAllocationCategory(body);
+    $("#allocationCategoryDialog").close(); renderAllocationLibrary(); renderFinances();
+    toast(id ? "Allocation category updated." : "Allocation category added.");
+  } catch (error) { errorElement.textContent = error.message || "Could not save that allocation category."; }
+  finally { submit.disabled = false; }
+}
+
+function deleteAllocationCategory(category) {
+  openDeleteConfirmation(`Delete ${category.name}?`, "Holdings in this category will become unassigned.", async () => {
+    try { financeData = await window.tempoServer.deleteAllocationCategory(category.id); renderAllocationLibrary(); renderFinances(); toast("Allocation category deleted."); }
+    catch (error) { toast(error.message || "Could not delete that allocation category."); }
+  });
+}
+
 async function addFinanceHolding(event) {
   event.preventDefault();
   const type = $("#financeHoldingType").value, quantity = Number($("#financeQuantity").value);
-  const body = { type, quantity, ...(type === "STOCK" ? { symbol: $("#financeTicker").value } : { currency: $("#financeCashCurrency").value, name: $("#financeCashName").value }) };
+  const body = { type, quantity, allocationCategoryId: $("#financeAllocationCategory").value || null, ...(type === "STOCK" ? { symbol: $("#financeTicker").value } : { currency: $("#financeCashCurrency").value, name: $("#financeCashName").value }) };
   const errorElement = $("#financeHoldingError"); errorElement.textContent = "";
   try {
     financeData = await window.tempoServer.addFinanceHolding(body);
@@ -1870,6 +1970,7 @@ function openFinanceHoldingDialog() {
   $("#financeHoldingType").value = "STOCK";
   $("#financeCashCurrency").value = financeData?.currency || "CAD";
   $("#financeHoldingError").textContent = "";
+  renderFinanceCategoryOptions($("#financeAllocationCategory"));
   updateFinanceHoldingFields();
   $("#financeHoldingDialog").showModal();
   $("#financeTicker").focus();
@@ -1898,6 +1999,7 @@ function openFinanceEditHoldingDialog(row) {
   $("#financeEditCashCurrency").value = holding.currency || financeData?.currency || "CAD";
   $("#financeEditCashName").value = holding.type === "CASH" && holding.name !== `${holding.currency} cash` ? holding.name || "" : "";
   $("#financeEditQuantity").value = holding.quantity;
+  renderFinanceCategoryOptions($("#financeEditAllocationCategory"), holding.allocationCategoryId);
   $("#financeEditHoldingError").textContent = "";
   updateFinanceEditHoldingFields();
   $("#financeEditHoldingDialog").showModal();
@@ -1907,7 +2009,7 @@ function openFinanceEditHoldingDialog(row) {
 async function saveFinanceHolding(event) {
   event.preventDefault();
   const type = $("#financeEditHoldingType").value;
-  const body = { type, quantity: Number($("#financeEditQuantity").value), ...(type === "STOCK" ? { symbol: $("#financeEditTicker").value } : { currency: $("#financeEditCashCurrency").value, name: $("#financeEditCashName").value }) };
+  const body = { type, quantity: Number($("#financeEditQuantity").value), allocationCategoryId: $("#financeEditAllocationCategory").value || null, ...(type === "STOCK" ? { symbol: $("#financeEditTicker").value } : { currency: $("#financeEditCashCurrency").value, name: $("#financeEditCashName").value }) };
   const submit = $('button[type="submit"]', event.currentTarget);
   const errorElement = $("#financeEditHoldingError");
   errorElement.textContent = "";
@@ -1935,7 +2037,7 @@ function deleteFinanceHolding(row) {
 }
 
 const primaryViewOrder = ["timersView", "foodLogView", "strengthView", "cardioView", "sleepView", "financesView"];
-const primaryViewParents = { foodLibraryView: "foodLogView", workoutLibraryView: "strengthView", workoutSessionView: "strengthView", cardioSessionView: "cardioView" };
+const primaryViewParents = { foodLibraryView: "foodLogView", workoutLibraryView: "strengthView", workoutSessionView: "strengthView", cardioSessionView: "cardioView", allocationLibraryView: "financesView" };
 let metroTransitionDirection = 0;
 
 function primaryViewFor(viewId) { return primaryViewParents[viewId] || viewId; }
@@ -2101,7 +2203,7 @@ function updateViewLinkPaths() {
 function showView(viewId, updateHistory = true) {
   activeView = viewId;
   $$(".view").forEach(view => view.classList.toggle("active", view.id === viewId));
-  $$('[data-view-link]').forEach(link => link.setAttribute("aria-current", link.dataset.viewLink === viewId || (viewId === "foodLibraryView" && link.dataset.viewLink === "foodLogView") || (["workoutLibraryView", "workoutSessionView"].includes(viewId) && link.dataset.viewLink === "strengthView") || (viewId === "cardioSessionView" && link.dataset.viewLink === "cardioView") ? "page" : "false"));
+  $$('[data-view-link]').forEach(link => link.setAttribute("aria-current", link.dataset.viewLink === viewId || (viewId === "foodLibraryView" && link.dataset.viewLink === "foodLogView") || (["workoutLibraryView", "workoutSessionView"].includes(viewId) && link.dataset.viewLink === "strengthView") || (viewId === "cardioSessionView" && link.dataset.viewLink === "cardioView") || (viewId === "allocationLibraryView" && link.dataset.viewLink === "financesView") ? "page" : "false"));
   if (updateHistory) {
     const path = pathForView(privateBasePath, viewId, detailIdForView(viewId));
     if (location.pathname !== path) history.pushState(null, "", `${path}${location.search}`);
@@ -2119,6 +2221,7 @@ function showView(viewId, updateHistory = true) {
   if (viewId === "timersView" && !sleepData) loadSleep();
   if (viewId === "sleepView") visitSleep();
   if (viewId === "financesView") visitFinances();
+  if (viewId === "allocationLibraryView") { loadFinances(); renderAllocationLibrary(); }
   if (viewId === "cardioSessionView") renderCardioSessionDetailPage();
   const enteredView = $(`#${viewId}`);
   if (metroTransitionDirection && enteredView && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -2197,8 +2300,8 @@ const pageWalkthroughs = {
   financesView: {
     page: "finances",
     steps: [
-      { view: "financesView", target: ".finances-page-heading", title: "Track your portfolio in one currency", description: "Add stocks and cash holdings, then choose the display currency that makes the whole portfolio easiest to understand." },
-      { view: "financesView", target: "#financesContent", title: "See allocation and performance", description: "Portfolio totals, allocation, holdings, and available price history update automatically whenever you visit Finances." }
+      { view: "financesView", target: ".finances-page-heading", title: "Build your portfolio and target mix", description: "Create allocation categories with target percentages, then assign each stock or cash holding to a category when you add or edit it." },
+      { view: "financesView", target: "#financesContent", title: "See where your allocation has drifted", description: "Tempo compares each category’s current share of market value with its target, so you can see portfolio drift alongside performance and holding totals." }
     ]
   },
   settingsView: {
@@ -3357,8 +3460,24 @@ $("#financeHoldingForm").addEventListener("submit", addFinanceHolding);
 $("#financeHoldingType").addEventListener("change", updateFinanceHoldingFields);
 $("#financeEditHoldingForm").addEventListener("submit", saveFinanceHolding);
 $("#financeEditHoldingType").addEventListener("change", updateFinanceEditHoldingFields);
+$("#allocationCategoryForm").addEventListener("submit", saveAllocationCategory);
+$("#openAllocationLibraryButton").addEventListener("click", () => showView("allocationLibraryView"));
+$("#backToFinancesButton").addEventListener("click", () => showView("financesView"));
+$("#newAllocationCategoryButton").addEventListener("click", () => openAllocationCategoryDialog());
+$("#allocationLibraryGrid").addEventListener("click", event => {
+  if (event.target.closest("[data-new-allocation-category]")) { openAllocationCategoryDialog(); return; }
+  const card = event.target.closest("[data-allocation-category-id]");
+  const action = event.target.closest("[data-allocation-action]")?.dataset.allocationAction;
+  if (!card || !action) return;
+  const category = financeData?.allocation?.categories?.find(item => String(item.id) === card.dataset.allocationCategoryId);
+  if (!category) return;
+  if (action === "menu") { const menu = $(".food-menu", card); $$(".menu.open").filter(item => item !== menu).forEach(item => item.classList.remove("open")); menu.classList.toggle("open"); }
+  if (action === "edit") openAllocationCategoryDialog(category);
+  if (action === "delete") deleteAllocationCategory(category);
+});
 $("#financesContent").addEventListener("click", event => {
   if (event.target.closest("[data-finance-add]")) { openFinanceHoldingDialog(); return; }
+  if (event.target.closest("[data-finance-allocation-library]")) { showView("allocationLibraryView"); return; }
   const action = event.target.closest("[data-finance-action]")?.dataset.financeAction;
   const row = event.target.closest("[data-finance-holding-id]");
   if (!row || !action) return;

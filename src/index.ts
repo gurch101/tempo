@@ -10,7 +10,7 @@ import { readFoodLogs, readFoods, readHabitLogs, readHabits, readMeals, readNutr
 import { createExerciseSet, removeExerciseSet, updateExerciseSet, writeFoodLogs, writeFoods, writeHabitLog, writeHabitLogs, writeHabits, writeMeals, writeNutritionGoal, writeStrength, writeTimers } from "./section-writes";
 import { readCardio, readCardioSession } from "./cardio";
 import { readSleep } from "./sleep";
-import { MarketDataError, normalizeCurrency, normalizeTicker, readFinances, refreshFinances } from "./finances";
+import { FINANCE_ALLOCATION_COLORS, MarketDataError, normalizeCurrency, normalizeTicker, readFinances, refreshFinances } from "./finances";
 import { decryptSecret, encryptSecret } from "./secrets";
 import { exchangeAuthorizationCode, GOOGLE_HEALTH_SCOPES, GoogleHealthApiError, importGoogleHealthData, importGoogleSleepData, refreshGoogleAccessToken } from "./google-health";
 
@@ -394,12 +394,57 @@ app.get("/api/finances", async c => {
   return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
 });
 
+app.post("/api/finances/allocation-categories", async c => {
+  const body = await c.req.json<{ name?: unknown; color?: unknown; targetPercentage?: unknown }>().catch(() => null);
+  const name = typeof body?.name === "string" ? body.name.trim().replace(/\s+/g, " ") : "";
+  const color = String(body?.color || "").toLowerCase();
+  const targetPercentage = typeof body?.targetPercentage === "number" ? body.targetPercentage : Number.NaN;
+  if (!name || name.length > 40) return error(c, 422, "validation_failed", "Category names must be between 1 and 40 characters.", { name: "Enter a name up to 40 characters." });
+  if (!FINANCE_ALLOCATION_COLORS.includes(color as typeof FINANCE_ALLOCATION_COLORS[number])) return error(c, 422, "validation_failed", "Choose a color from the allocation palette.", { color: "Choose one of the available colors." });
+  if (!Number.isFinite(targetPercentage) || targetPercentage < 0 || targetPercentage > 100) return error(c, 422, "validation_failed", "Target percentage must be between 0 and 100.", { targetPercentage: "Enter a percentage from 0 to 100." });
+  const existing = await c.env.DB.prepare("SELECT id FROM finance_allocation_categories WHERE space_id=? AND name=? COLLATE NOCASE").bind(c.var.space.id, name).first();
+  if (existing) return error(c, 409, "allocation_category_exists", "That allocation category already exists.");
+  await c.env.DB.prepare("INSERT INTO finance_allocation_categories(space_id,name,color,target_percentage) VALUES(?,?,?,?)").bind(c.var.space.id, name, color, targetPercentage).run();
+  return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision }, 201);
+});
+
+app.put("/api/finances/allocation-categories/:id", async c => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id) || id <= 0) return error(c, 404, "not_found", "Allocation category not found.");
+  const body = await c.req.json<{ name?: unknown; color?: unknown; targetPercentage?: unknown }>().catch(() => null);
+  const name = typeof body?.name === "string" ? body.name.trim().replace(/\s+/g, " ") : "";
+  const color = String(body?.color || "").toLowerCase();
+  const targetPercentage = typeof body?.targetPercentage === "number" ? body.targetPercentage : Number.NaN;
+  if (!name || name.length > 40) return error(c, 422, "validation_failed", "Category names must be between 1 and 40 characters.", { name: "Enter a name up to 40 characters." });
+  if (!FINANCE_ALLOCATION_COLORS.includes(color as typeof FINANCE_ALLOCATION_COLORS[number])) return error(c, 422, "validation_failed", "Choose a color from the allocation palette.", { color: "Choose one of the available colors." });
+  if (!Number.isFinite(targetPercentage) || targetPercentage < 0 || targetPercentage > 100) return error(c, 422, "validation_failed", "Target percentage must be between 0 and 100.", { targetPercentage: "Enter a percentage from 0 to 100." });
+  const existing = await c.env.DB.prepare("SELECT id FROM finance_allocation_categories WHERE space_id=? AND name=? COLLATE NOCASE AND id<>?").bind(c.var.space.id, name, id).first();
+  if (existing) return error(c, 409, "allocation_category_exists", "That allocation category already exists.");
+  const updated = await c.env.DB.prepare("UPDATE finance_allocation_categories SET name=?,color=?,target_percentage=? WHERE id=? AND space_id=?").bind(name, color, targetPercentage, id, c.var.space.id).run();
+  if (!updated.meta.changes) return error(c, 404, "not_found", "Allocation category not found.");
+  return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
+});
+
+app.delete("/api/finances/allocation-categories/:id", async c => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id) || id <= 0) return error(c, 404, "not_found", "Allocation category not found.");
+  const deleted = await c.env.DB.prepare("DELETE FROM finance_allocation_categories WHERE id=? AND space_id=?").bind(id, c.var.space.id).run();
+  if (!deleted.meta.changes) return error(c, 404, "not_found", "Allocation category not found.");
+  return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
+});
+
 app.post("/api/finances/holdings", async c => {
-  const body = await c.req.json<{ type?: unknown; symbol?: unknown; currency?: unknown; name?: unknown; quantity?: unknown }>().catch(() => null);
+  const body = await c.req.json<{ type?: unknown; symbol?: unknown; currency?: unknown; name?: unknown; quantity?: unknown; allocationCategoryId?: unknown }>().catch(() => null);
   if (!body) return error(c, 422, "validation_failed", "Enter a valid holding.");
   const type = String(body.type || "").toUpperCase();
   const quantity = Number(body.quantity);
   if (!Number.isFinite(quantity) || quantity <= 0) return error(c, 422, "validation_failed", "Quantity must be greater than zero.", { quantity: "Enter a positive number." });
+  const allocationCategoryId = body.allocationCategoryId == null || body.allocationCategoryId === "" ? null : Number(body.allocationCategoryId);
+  if (allocationCategoryId !== null) {
+    if (!Number.isInteger(allocationCategoryId) || allocationCategoryId <= 0) return error(c, 422, "validation_failed", "Choose a valid allocation category.");
+    const category = await c.env.DB.prepare("SELECT id FROM finance_allocation_categories WHERE id=? AND space_id=?").bind(allocationCategoryId, c.var.space.id).first();
+    if (!category) return error(c, 422, "validation_failed", "Choose an allocation category from this portfolio.");
+  }
   let symbol: string | null = null, currency: string | null = null, displayName: string | null = null;
   if (type === "STOCK") {
     symbol = normalizeTicker(body.symbol);
@@ -415,19 +460,25 @@ app.post("/api/finances/holdings", async c => {
     const existing = await c.env.DB.prepare("SELECT id FROM finance_holdings WHERE space_id=? AND asset_type='STOCK' AND symbol=?").bind(c.var.space.id, symbol).first<{ id: number }>();
     if (existing) return error(c, 409, "holding_exists", "That holding is already in the portfolio. Edit its quantity instead.");
   }
-  await c.env.DB.prepare("INSERT INTO finance_holdings(space_id,asset_type,symbol,native_currency,display_name,quantity) VALUES(?,?,?,?,?,?)")
-    .bind(c.var.space.id, type, symbol, currency, type === "CASH" ? displayName : symbol, quantity).run();
+  await c.env.DB.prepare("INSERT INTO finance_holdings(space_id,asset_type,symbol,native_currency,display_name,quantity,allocation_category_id) VALUES(?,?,?,?,?,?,?)")
+    .bind(c.var.space.id, type, symbol, currency, type === "CASH" ? displayName : symbol, quantity, allocationCategoryId).run();
   return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision }, 201);
 });
 
 app.put("/api/finances/holdings/:id", async c => {
   const id = Number(c.req.param("id"));
   if (!Number.isInteger(id) || id <= 0) return error(c, 404, "not_found", "Holding not found.");
-  const body = await c.req.json<{ type?: unknown; symbol?: unknown; currency?: unknown; name?: unknown; quantity?: unknown }>().catch(() => null);
+  const body = await c.req.json<{ type?: unknown; symbol?: unknown; currency?: unknown; name?: unknown; quantity?: unknown; allocationCategoryId?: unknown }>().catch(() => null);
   if (!body) return error(c, 422, "validation_failed", "Enter valid holding details.");
   const type = String(body.type || "").toUpperCase();
   const quantity = Number(body.quantity);
   if (!Number.isFinite(quantity) || quantity <= 0) return error(c, 422, "validation_failed", "Quantity must be greater than zero.", { quantity: "Enter a positive number." });
+  const allocationCategoryId = body.allocationCategoryId == null || body.allocationCategoryId === "" ? null : Number(body.allocationCategoryId);
+  if (allocationCategoryId !== null) {
+    if (!Number.isInteger(allocationCategoryId) || allocationCategoryId <= 0) return error(c, 422, "validation_failed", "Choose a valid allocation category.");
+    const category = await c.env.DB.prepare("SELECT id FROM finance_allocation_categories WHERE id=? AND space_id=?").bind(allocationCategoryId, c.var.space.id).first();
+    if (!category) return error(c, 422, "validation_failed", "Choose an allocation category from this portfolio.");
+  }
   const current = await c.env.DB.prepare("SELECT asset_type,symbol,native_currency,display_name FROM finance_holdings WHERE id=? AND space_id=?")
     .bind(id, c.var.space.id).first<{ asset_type: string; symbol: string | null; native_currency: string | null; display_name: string | null }>();
   if (!current) return error(c, 404, "not_found", "Holding not found.");
@@ -447,8 +498,8 @@ app.put("/api/finances/holdings/:id", async c => {
     if (requestedName.length > 60) return error(c, 422, "validation_failed", "Display name must be 60 characters or fewer.", { name: "Use 60 characters or fewer." });
     displayName = requestedName || `${currency} cash`;
   } else return error(c, 422, "validation_failed", "Holding type must be stock or cash.");
-  const updated = await c.env.DB.prepare("UPDATE finance_holdings SET asset_type=?,symbol=?,native_currency=?,display_name=?,quantity=? WHERE id=? AND space_id=?")
-    .bind(type, symbol, currency, displayName, quantity, id, c.var.space.id).run();
+  const updated = await c.env.DB.prepare("UPDATE finance_holdings SET asset_type=?,symbol=?,native_currency=?,display_name=?,quantity=?,allocation_category_id=? WHERE id=? AND space_id=?")
+    .bind(type, symbol, currency, displayName, quantity, allocationCategoryId, id, c.var.space.id).run();
   if (!updated.meta.changes) return error(c, 404, "not_found", "Holding not found.");
   return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
 });

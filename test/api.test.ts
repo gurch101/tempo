@@ -61,7 +61,7 @@ describe("private areas", () => {
   it("uses entity and composite primary keys and has no state JSON column", async () => {
     const schema = await env.DB.prepare("SELECT name, sql FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name != 'd1_migrations'").all<{ name: string; sql: string }>();
     expect(schema.results.length).toBeGreaterThan(15);
-    const entityTables = ["spaces","timers","habits","foods","meals","food_log_entries","workouts","workout_exercises","mesocycles","workout_sessions","session_exercises","exercise_sets","cardio_sessions","sleep_sessions","finance_holdings","finance_quotes","finance_daily_prices","finance_fx_quotes","finance_daily_fx_rates"];
+    const entityTables = ["spaces","timers","habits","foods","meals","food_log_entries","workouts","workout_exercises","mesocycles","workout_sessions","session_exercises","exercise_sets","cardio_sessions","sleep_sessions","finance_holdings","finance_allocation_categories","finance_quotes","finance_daily_prices","finance_fx_quotes","finance_daily_fx_rates"];
     for (const name of entityTables) expect(schema.results.find(table => table.name === name)!.sql, name).toContain("INTEGER PRIMARY KEY AUTOINCREMENT");
     const compositeTables = ["habit_schedule_days","habit_daily_logs","meal_items","mesocycle_workouts","mesocycle_weeks","session_exercise_allocations","cardio_resting_heart_rates","cardio_daily_steps","cardio_hourly_steps","cardio_daily_zone2","cardio_heart_rate_chunks","cardio_session_exclusions","sleep_stages","space_walkthrough_pages"];
     for (const name of compositeTables) expect(schema.results.find(table => table.name === name)!.sql, name).toContain("PRIMARY KEY (");
@@ -428,7 +428,13 @@ describe("private areas", () => {
     const first = await createArea(); const second = await createArea();
     const firstSpaceId = (await env.DB.prepare("SELECT id FROM spaces WHERE access_key_hash=?").bind(await sha256(first.key)).first<{ id: number }>())!.id;
     const mutate = (path: string, body: unknown) => SELF.fetch(`https://tempo.test${path}`, { method: "POST", headers: { ...auth(first.key), Origin: "https://tempo.test", "content-type": "application/json" }, body: JSON.stringify(body) });
-    expect((await mutate("/api/finances/holdings", { type: "STOCK", symbol: "aapl", quantity: 2 })).status).toBe(201);
+    const categoryResponse = await mutate("/api/finances/allocation-categories", { name: "Equities", color: "#ec5f3e", targetPercentage: 60 });
+    expect(categoryResponse.status).toBe(201);
+    const categoryPayload = await categoryResponse.json() as { data: { allocation: { categories: Array<{ id: number }> } } };
+    const equitiesId = categoryPayload.data.allocation.categories[0].id;
+    expect((await mutate("/api/finances/allocation-categories", { name: "Invalid target", color: "#f0ad43", targetPercentage: null })).status).toBe(422);
+    expect((await SELF.fetch(`https://tempo.test/api/finances/allocation-categories/${equitiesId}`, { method: "PUT", headers: { ...auth(first.key), Origin: "https://tempo.test", "content-type": "application/json" }, body: JSON.stringify({ name: "Equities", color: "#ec5f3e", targetPercentage: "" }) })).status).toBe(422);
+    expect((await mutate("/api/finances/holdings", { type: "STOCK", symbol: "aapl", quantity: 2, allocationCategoryId: equitiesId })).status).toBe(201);
     expect((await mutate("/api/finances/holdings", { type: "CASH", currency: "USD", name: "Emergency fund", quantity: 1000 })).status).toBe(201);
     expect((await mutate("/api/finances/holdings", { type: "CASH", currency: "USD", quantity: 250 })).status).toBe(201);
     expect((await mutate("/api/finances/holdings", { type: "CASH", currency: "CAD", quantity: 500 })).status).toBe(201);
@@ -450,6 +456,8 @@ describe("private areas", () => {
     expect(await skippedFinanceRefresh.json()).toMatchObject({ data: { sync: { skipped: true } } });
     const portfolio = await readFinances(env.DB, firstSpaceId, Date.parse("2026-08-09T22:00:00Z"));
     expect(portfolio).toMatchObject({ currency: "CAD", totalValue: 2530 });
+    expect(portfolio.allocation).toMatchObject({ targetTotal: 60, categories: [expect.objectContaining({ id: equitiesId, name: "Equities", targetPercentage: 60, currentValue: 280 })] });
+    expect(portfolio.allocation.categories[0].currentPercentage).toBeCloseTo(11.07, 2);
     expect(portfolio.changes.yesterday).toMatchObject({ value: 2346, change: 184 });
     expect(portfolio.changes.month).toMatchObject({ value: 2530, change: 0, fallbackLabels: ["AAPL", "Emergency fund", "USD cash"] });
     expect(portfolio.holdings.filter(holding => holding.type === "CASH" && holding.currency === "USD")).toHaveLength(2);
@@ -493,14 +501,16 @@ describe("private areas", () => {
     expect(await env.DB.prepare("SELECT finance_display_currency FROM spaces WHERE id=?").bind(firstSpaceId).first()).toMatchObject({ finance_display_currency: "USD" });
 
     const emergencyHolding = portfolio.holdings.find(holding => holding.name === "Emergency fund")!;
-    const editedHolding = await SELF.fetch(`https://tempo.test/api/finances/holdings/${emergencyHolding.id}`, { method: "PUT", headers: { ...auth(first.key), Origin: "https://tempo.test", "content-type": "application/json" }, body: JSON.stringify({ type: "CASH", currency: "EUR", name: "Travel fund", quantity: 1250 }) });
+    const editedHolding = await SELF.fetch(`https://tempo.test/api/finances/holdings/${emergencyHolding.id}`, { method: "PUT", headers: { ...auth(first.key), Origin: "https://tempo.test", "content-type": "application/json" }, body: JSON.stringify({ type: "CASH", currency: "EUR", name: "Travel fund", quantity: 1250, allocationCategoryId: equitiesId }) });
     expect(editedHolding.status).toBe(200);
-    expect(await editedHolding.json()).toMatchObject({ data: { holdings: expect.arrayContaining([expect.objectContaining({ id: emergencyHolding.id, type: "CASH", currency: "EUR", name: "Travel fund", quantity: 1250 })]) } });
+    expect(await editedHolding.json()).toMatchObject({ data: { holdings: expect.arrayContaining([expect.objectContaining({ id: emergencyHolding.id, type: "CASH", currency: "EUR", name: "Travel fund", quantity: 1250, allocationCategoryId: equitiesId })]) } });
     expect(await env.DB.prepare("SELECT asset_type,symbol,native_currency,display_name,quantity FROM finance_holdings WHERE id=? AND space_id=?").bind(emergencyHolding.id, firstSpaceId).first()).toMatchObject({ asset_type: "CASH", symbol: null, native_currency: "EUR", display_name: "Travel fund", quantity: 1250 });
 
     const secondPortfolio = await (await SELF.fetch("https://tempo.test/api/finances", { headers: auth(second.key) })).json() as { data: { holdings: unknown[]; currency: string } };
     expect(secondPortfolio.data).toMatchObject({ currency: "CAD", holdings: [expect.objectContaining({ symbol: "AAPL", quantity: 1, name: "Apple Inc.", currency: "USD" })] });
     expect((await SELF.fetch(`https://tempo.test/api/finances/holdings/${emergencyHolding.id}`, { method: "PUT", headers: { ...auth(second.key), Origin: "https://tempo.test", "content-type": "application/json" }, body: JSON.stringify({ type: "CASH", currency: "CAD", name: "Not owned", quantity: 1 }) })).status).toBe(404);
+    expect((await SELF.fetch(`https://tempo.test/api/finances/allocation-categories/${equitiesId}`, { method: "DELETE", headers: { ...auth(first.key), Origin: "https://tempo.test" } })).status).toBe(200);
+    expect(await env.DB.prepare("SELECT allocation_category_id FROM finance_holdings WHERE id=?").bind(emergencyHolding.id).first()).toMatchObject({ allocation_category_id: null });
   });
 
   it("rejects child relationships that cross space ownership", async () => {

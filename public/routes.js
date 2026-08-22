@@ -7,6 +7,7 @@ const STATIC_VIEW_ROUTES = {
   cardioView: "/cardio",
   sleepView: "/sleep",
   financesView: "/finances",
+  allocationLibraryView: "/finances/allocation",
   settingsView: "/settings"
 };
 
@@ -20,7 +21,7 @@ export function routeFromLocation(basePath, pathname, hash = "") {
   if (hash) {
     const cardio = /^#cardio-session\/(.+)$/.exec(hash);
     if (cardio) return { viewId: "cardioSessionView", detailId: decodeURIComponent(cardio[1]) };
-    const legacy = { "#home":"timersView", "#nutrition":"foodLogView", "#food-log":"foodLogView", "#food-library":"foodLibraryView", "#strength":"strengthView", "#workout-library":"workoutLibraryView", "#workout":"workoutSessionView", "#cardio":"cardioView", "#sleep":"sleepView", "#finances":"financesView", "#settings":"settingsView" };
+    const legacy = { "#home":"timersView", "#nutrition":"foodLogView", "#food-log":"foodLogView", "#food-library":"foodLibraryView", "#strength":"strengthView", "#workout-library":"workoutLibraryView", "#workout":"workoutSessionView", "#cardio":"cardioView", "#sleep":"sleepView", "#finances":"financesView", "#allocation-library":"allocationLibraryView", "#settings":"settingsView" };
     if (legacy[hash]) return { viewId: legacy[hash], detailId: null };
   }
   const relative = pathname.startsWith(basePath) ? pathname.slice(basePath.length).replace(/\/$/, "") : "";

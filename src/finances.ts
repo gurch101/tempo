@@ -5,6 +5,7 @@ const emptyRows = () => ({ results: [] } as unknown as D1Result<Row>);
 
 export const FINANCE_CURRENCIES = ["CAD", "USD", "EUR", "GBP", "JPY", "AUD", "NZD", "CHF"] as const;
 export type FinanceCurrency = typeof FINANCE_CURRENCIES[number];
+export const FINANCE_ALLOCATION_COLORS = ["#ec5f3e", "#f0ad43", "#d9c84d", "#73a66f", "#3d8f7c", "#4c91a8", "#6179ad", "#8270a8", "#ad668d", "#9a7460"] as const;
 
 export class MarketDataError extends Error {
   constructor(message: string, readonly status?: number) { super(message); }
@@ -146,9 +147,10 @@ function dateOffset(dateKey: string, days: number): string {
 }
 
 export async function readFinances(db: D1Database, spaceId: number, now = Date.now()) {
-  const [preference, holdingResult] = await Promise.all([
+  const [preference, holdingResult, categoryResult] = await Promise.all([
     db.prepare("SELECT timezone,finance_display_currency FROM spaces WHERE id=?").bind(spaceId).first<Row>(),
-    db.prepare("SELECT id,asset_type,symbol,native_currency,display_name,quantity FROM finance_holdings WHERE space_id=? ORDER BY asset_type DESC,symbol,native_currency,id").bind(spaceId).all<Row>()
+    db.prepare("SELECT id,asset_type,symbol,native_currency,display_name,quantity,allocation_category_id FROM finance_holdings WHERE space_id=? ORDER BY asset_type DESC,symbol,native_currency,id").bind(spaceId).all<Row>(),
+    db.prepare("SELECT id,name,color,target_percentage FROM finance_allocation_categories WHERE space_id=? ORDER BY name,id").bind(spaceId).all<Row>()
   ]);
   const currency = normalizeCurrency(preference?.finance_display_currency) || "CAD";
   const today = dateInZone(now / 1000, String(preference?.timezone || "UTC"));
@@ -198,7 +200,8 @@ export async function readFinances(db: D1Database, spaceId: number, now = Date.n
   }
   const holdings = (holdingResult.results || []).map(row => ({
     id: Number(row.id), type: String(row.asset_type), symbol: row.symbol == null ? null : String(row.symbol),
-    currency: row.native_currency == null ? null : String(row.native_currency), name: row.display_name == null ? null : String(row.display_name), quantity: Number(row.quantity)
+    currency: row.native_currency == null ? null : String(row.native_currency), name: row.display_name == null ? null : String(row.display_name), quantity: Number(row.quantity),
+    allocationCategoryId: row.allocation_category_id == null ? null : Number(row.allocation_category_id)
   }));
   const rateAt = (source: string | null, date: string | null): number | null => {
     if (!source) return null; if (source === currency) return 1;
@@ -243,6 +246,16 @@ export async function readFinances(db: D1Database, spaceId: number, now = Date.n
     const name = holding.type === "STOCK" && quote?.display_name != null ? String(quote.display_name) : holding.name;
     return { ...holding, currency: nativeCurrency, name, nativePrice, marketValue, previousMarketValue, valueChange, percentChange, quoteUpdatedAt: holding.type === "CASH" ? null : finite(quote?.synced_at) };
   });
+  const allocationTotal = valuedHoldings.reduce((sum, holding) => sum + (holding.marketValue ?? 0), 0);
+  const categories = (categoryResult.results || []).map(row => {
+    const id = Number(row.id);
+    const currentValue = valuedHoldings.filter(holding => holding.allocationCategoryId === id).reduce((sum, holding) => sum + (holding.marketValue ?? 0), 0);
+    const currentPercentage = allocationTotal > 0 ? currentValue / allocationTotal * 100 : 0;
+    const targetPercentage = Number(row.target_percentage);
+    return { id, name: String(row.name), color: String(row.color), targetPercentage, currentValue, currentPercentage, driftPercentage: currentPercentage - targetPercentage };
+  });
+  const unassignedValue = valuedHoldings.filter(holding => holding.allocationCategoryId === null).reduce((sum, holding) => sum + (holding.marketValue ?? 0), 0);
+  const allocation = { categories, targetTotal: categories.reduce((sum, category) => sum + category.targetPercentage, 0), unassignedValue, unassignedPercentage: allocationTotal > 0 ? unassignedValue / allocationTotal * 100 : 0 };
   const requiredUpdatedTimes: number[] = [];
   let refreshMetadataComplete = true;
   const stockSymbols = new Set(holdings.filter(holding => holding.type === "STOCK" && holding.symbol).map(holding => holding.symbol!));
@@ -260,5 +273,5 @@ export async function readFinances(db: D1Database, spaceId: number, now = Date.n
     else requiredUpdatedTimes.push(updatedAt);
   }
   const lastRefreshedAt = refreshMetadataComplete && requiredUpdatedTimes.length ? Math.min(...requiredUpdatedTimes) : null;
-  return { currency, currencies: FINANCE_CURRENCIES, totalValue: total, changes, holdings: valuedHoldings, lastRefreshedAt };
+  return { currency, currencies: FINANCE_CURRENCIES, allocationColors: FINANCE_ALLOCATION_COLORS, allocation, totalValue: total, changes, holdings: valuedHoldings, lastRefreshedAt };
 }
