@@ -2080,6 +2080,14 @@ function installMetroPager() {
   let gesture = null;
   let snapbackTimer = null;
 
+  const isInsideHorizontalScroller = target => {
+    for (let element = target instanceof Element ? target : target?.parentElement; element && element !== pager; element = element.parentElement) {
+      const overflowX = getComputedStyle(element).overflowX;
+      if (["auto", "scroll", "overlay"].includes(overflowX) && element.scrollWidth > element.clientWidth + 1) return true;
+    }
+    return false;
+  };
+
   const resetDraggedView = view => {
     const draggedView = view || gesture?.view;
     if (draggedView) {
@@ -2091,7 +2099,7 @@ function installMetroPager() {
 
   const beginGesture = (target, id, x, y) => {
     const currentPrimary = primaryViewFor(activeView);
-    if (!primaryViewOrder.includes(currentPrimary) || activeView !== currentPrimary || target.closest(ignoredSwipeTarget)) return false;
+    if (!primaryViewOrder.includes(currentPrimary) || activeView !== currentPrimary || target.closest(ignoredSwipeTarget) || isInsideHorizontalScroller(target)) return false;
     const view = $(`#${activeView}`);
     if (snapbackTimer) { clearTimeout(snapbackTimer); snapbackTimer = null; }
     resetDraggedView(view);
