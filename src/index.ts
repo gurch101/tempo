@@ -13,6 +13,7 @@ import { readSleep } from "./sleep";
 import { FINANCE_ALLOCATION_COLORS, MarketDataError, normalizeCurrency, normalizeTicker, readFinances, refreshFinances } from "./finances";
 import { decryptSecret, encryptSecret } from "./secrets";
 import { exchangeAuthorizationCode, GOOGLE_HEALTH_SCOPES, GoogleHealthApiError, importGoogleHealthData, importGoogleSleepData, refreshGoogleAccessToken } from "./google-health";
+import { readTrendDelta } from "./trends";
 
 type AppContext = Context<{ Bindings: Bindings }>;
 const app = new Hono<{ Bindings: Bindings }>();
@@ -392,6 +393,13 @@ app.post("/api/sleep/sync", async c => {
 
 app.get("/api/finances", async c => {
   return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
+});
+
+app.get("/api/trends", async c => {
+  const rawCursor = c.req.query("cursor");
+  if (rawCursor !== undefined && !/^\d+$/.test(rawCursor)) return error(c, 422, "validation_failed", "The trend cursor must be a non-negative integer.", { cursor: "Use the cursor returned by the previous trend response." });
+  const data = await readTrendDelta(c.env.DB, c.var.space.id, rawCursor === undefined ? null : Number(rawCursor));
+  return c.json({ data, revision: c.var.space.revision });
 });
 
 app.post("/api/finances/allocation-categories", async c => {

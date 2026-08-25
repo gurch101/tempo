@@ -186,7 +186,9 @@ describe("private areas", () => {
     const firstSpaceId = (await env.DB.prepare("SELECT id FROM spaces WHERE access_key_hash=?").bind(await sha256(first.key)).first<{ id: number }>())!.id;
     const now = Date.parse("2026-08-08T18:00:00Z");
     const connectPayload = await (await SELF.fetch("https://tempo.test/api/google-health/connect", { method: "POST", headers: { ...auth(first.key), Origin: "https://tempo.test" } })).json() as { data: { url: string } };
-    expect(new URL(connectPayload.data.url).searchParams.get("client_id")).toBe("test-client-id");
+    const authorizationUrl = new URL(connectPayload.data.url);
+    expect(authorizationUrl.searchParams.get("client_id")).toBe("test-client-id");
+    expect(authorizationUrl.searchParams.get("redirect_uri")).toBe("https://tempo.test/api/google-health/callback");
     expect((await env.DB.prepare("SELECT sql FROM sqlite_schema WHERE type='table' AND name='google_health_connections'").first<{ sql: string }>())?.sql).not.toMatch(/client_id|client_secret/);
     await env.DB.prepare("INSERT INTO google_health_connections (space_id,refresh_token_ciphertext,refresh_token_iv,granted_scopes,connected_at) VALUES (?,'encrypted','iv','read',?)")
       .bind(firstSpaceId, now).run();
@@ -404,15 +406,25 @@ describe("private areas", () => {
       env.DB.prepare("INSERT INTO sleep_sessions(space_id,google_data_point_name,sleep_date,start_time,end_time,minutes_asleep,is_nap,google_updated_at,synced_at) VALUES(?,'old-sleep','2026-08-01',?,?,420,0,?,?)").bind(spaceId,Date.parse("2026-08-01T05:00:00Z"),Date.parse("2026-08-01T12:00:00Z"),lastSync,lastSync)
     ]);
     const filters=new Map<string,string>(),stepRanges:{daily?:unknown;hourly?:unknown}={},zoneRanges:unknown[]=[];
-    const incrementalFetch=(async(input:RequestInfo|URL,init?:RequestInit)=>{const url=new URL(String(input)),dataType=url.pathname.split("/").at(-2)!;if(dataType==="steps"){const body=JSON.parse(String(init?.body))as any;stepRanges[body.windowSize?"hourly":"daily"]=body.range;return Response.json({rollupDataPoints:[]});}if(dataType==="time-in-heart-rate-zone"){zoneRanges.push((JSON.parse(String(init?.body))as any).range);return Response.json({rollupDataPoints:[]});}filters.set(dataType,url.searchParams.get("filter")||"");return Response.json({dataPoints:[]});})as typeof fetch;
+    const incrementalFetch=(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      const url=new URL(String(input)),dataType=url.pathname.split("/").at(-2)!;
+      if(dataType==="steps"){const body=JSON.parse(String(init?.body))as any;stepRanges[body.windowSize?"hourly":"daily"]=body.range;return Response.json({rollupDataPoints:[]});}
+      if(dataType==="time-in-heart-rate-zone"){zoneRanges.push((JSON.parse(String(init?.body))as any).range);return Response.json({rollupDataPoints:[]});}
+      filters.set(dataType,url.searchParams.get("filter")||"");
+      if(dataType==="exercise")return Response.json({dataPoints:[
+        {name:"late-treadmill",exercise:{exerciseType:"TREADMILL",displayName:"Delayed treadmill",interval:{startTime:"2026-08-08T23:00:00Z",endTime:"2026-08-08T23:30:00Z"},activeDuration:"1800s",updateTime:"2026-08-09T01:00:00Z"}}
+      ]});
+      return Response.json({dataPoints:[]});
+    })as typeof fetch;
     await importGoogleHealthData(env.DB,spaceId,"access-token",now,incrementalFetch,lastSync);
     await importGoogleSleepData(env.DB,spaceId,"access-token",now,incrementalFetch,lastSync);
-    expect(filters.get("daily-resting-heart-rate")).toBe('daily_resting_heart_rate.date >= "2026-08-09" AND daily_resting_heart_rate.date < "2026-08-11"');
-    expect(filters.get("exercise")).toBe('exercise.interval.civil_start_time >= "2026-08-09" AND exercise.interval.civil_start_time < "2026-08-11"');
-    expect(filters.get("sleep")).toBe('sleep.interval.end_time >= "2026-08-09T00:00:00.000Z" AND sleep.interval.end_time < "2026-08-11T00:00:00.000Z"');
+    expect(filters.get("daily-resting-heart-rate")).toBe('daily_resting_heart_rate.date >= "2026-08-07" AND daily_resting_heart_rate.date < "2026-08-11"');
+    expect(filters.get("exercise")).toBe('exercise.interval.civil_start_time >= "2026-08-07" AND exercise.interval.civil_start_time < "2026-08-11"');
+    expect(filters.get("sleep")).toBe('sleep.interval.end_time >= "2026-08-07T00:00:00.000Z" AND sleep.interval.end_time < "2026-08-11T00:00:00.000Z"');
     expect(stepRanges.daily).toMatchObject({start:{date:{year:2026,month:8,day:4}},end:{date:{year:2026,month:8,day:11}}});
     expect(stepRanges.hourly).toEqual({startTime:"2026-08-02T21:00:00.000Z",endTime:"2026-08-10T21:00:00.000Z"});
-    expect(zoneRanges[0]).toMatchObject({start:{date:{year:2026,month:8,day:9}},end:{date:{year:2026,month:8,day:11}}});
+    expect(zoneRanges[0]).toMatchObject({start:{date:{year:2026,month:8,day:7}},end:{date:{year:2026,month:8,day:11}}});
+    expect(await env.DB.prepare("SELECT COUNT(*) count FROM cardio_sessions WHERE space_id=? AND google_data_point_name='late-treadmill'").bind(spaceId).first()).toMatchObject({count:1});
     expect(await env.DB.prepare("SELECT COUNT(*) count FROM cardio_resting_heart_rates WHERE space_id=?").bind(spaceId).first()).toMatchObject({count:1});
     expect(await env.DB.prepare("SELECT COUNT(*) count FROM cardio_daily_steps WHERE space_id=?").bind(spaceId).first()).toMatchObject({count:0});
     expect(await env.DB.prepare("SELECT COUNT(*) count FROM cardio_hourly_steps WHERE space_id=?").bind(spaceId).first()).toMatchObject({count:0});
@@ -457,6 +469,12 @@ describe("private areas", () => {
     expect(await skippedFinanceRefresh.json()).toMatchObject({ data: { sync: { skipped: true } } });
     const portfolio = await readFinances(env.DB, firstSpaceId, Date.parse("2026-08-09T22:00:00Z"));
     expect(portfolio).toMatchObject({ currency: "CAD", totalValue: 2530 });
+    expect(portfolio.marketValueHistory).toEqual([
+      { date: "2026-08-01", value: 2192 },
+      { date: "2026-08-06", value: 2204 },
+      { date: "2026-08-08", value: 2346 },
+      { date: "2026-08-09", value: 2530 }
+    ]);
     expect(portfolio.allocation).toMatchObject({ targetTotal: 60, categories: [expect.objectContaining({ id: equitiesId, name: "Equities", targetPercentage: 60, currentValue: 280 })] });
     expect(portfolio.allocation.categories[0].currentPercentage).toBeCloseTo(11.07, 2);
     const bondsResponse = await mutate("/api/finances/allocation-categories", { name: "Bonds", color: "#4c91a8", targetPercentage: 40 });
@@ -520,6 +538,31 @@ describe("private areas", () => {
     expect((await SELF.fetch(`https://tempo.test/api/finances/holdings/${emergencyHolding.id}`, { method: "PUT", headers: { ...auth(second.key), Origin: "https://tempo.test", "content-type": "application/json" }, body: JSON.stringify({ type: "CASH", currency: "CAD", name: "Not owned", quantity: 1 }) })).status).toBe(404);
     expect((await SELF.fetch(`https://tempo.test/api/finances/allocation-categories/${equitiesId}`, { method: "DELETE", headers: { ...auth(first.key), Origin: "https://tempo.test" } })).status).toBe(200);
     expect(await env.DB.prepare("SELECT allocation_category_id FROM finance_holdings WHERE id=?").bind(emergencyHolding.id).first()).toMatchObject({ allocation_category_id: null });
+  });
+
+  it("uses current quotes when a market-history point is missing", async () => {
+    const area = await createArea();
+    const space = await env.DB.prepare("SELECT id FROM spaces WHERE access_key_hash=?").bind(await sha256(area.key)).first<{ id: number }>();
+    const now = Date.parse("2026-08-09T22:00:00Z");
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM finance_daily_prices WHERE symbol IN ('HIST','CURRENT')"),
+      env.DB.prepare("DELETE FROM finance_quotes WHERE symbol IN ('HIST','CURRENT')"),
+      env.DB.prepare("DELETE FROM finance_daily_fx_rates WHERE from_currency='USD' AND to_currency='CAD'"),
+      env.DB.prepare("INSERT INTO finance_holdings(space_id,asset_type,symbol,native_currency,display_name,quantity) VALUES(?,'STOCK','HIST','CAD','Historical',1)").bind(space!.id),
+      env.DB.prepare("INSERT INTO finance_holdings(space_id,asset_type,symbol,native_currency,display_name,quantity) VALUES(?,'STOCK','CURRENT','CAD','Current only',1)").bind(space!.id),
+      env.DB.prepare("INSERT INTO finance_holdings(space_id,asset_type,symbol,native_currency,display_name,quantity) VALUES(?,'CASH',NULL,'USD','USD cash',10)").bind(space!.id),
+      env.DB.prepare("INSERT INTO finance_quotes(symbol,display_name,native_currency,market_price,synced_at) VALUES('HIST','Historical','CAD',100,?)").bind(now),
+      env.DB.prepare("INSERT INTO finance_quotes(symbol,display_name,native_currency,market_price,synced_at) VALUES('CURRENT','Current only','CAD',50,?)").bind(now),
+      env.DB.prepare("INSERT INTO finance_daily_prices(symbol,native_currency,price_date,close_price) VALUES('HIST','CAD','2026-08-01',80)"),
+      env.DB.prepare("INSERT INTO finance_fx_quotes(from_currency,to_currency,exchange_rate,synced_at) VALUES('USD','CAD',1.4,?) ON CONFLICT(from_currency,to_currency) DO UPDATE SET exchange_rate=excluded.exchange_rate,synced_at=excluded.synced_at").bind(now)
+    ]);
+
+    const portfolio = await readFinances(env.DB, space!.id, now);
+    expect(portfolio.totalValue).toBeCloseTo(164);
+    expect(portfolio.marketValueHistory).toEqual([
+      { date: "2026-08-01", value: 144 },
+      { date: "2026-08-09", value: 164 }
+    ]);
   });
 
   it("rejects child relationships that cross space ownership", async () => {
@@ -727,5 +770,49 @@ describe("private areas", () => {
     expect(foodLogSection.data.recentMealIds).toEqual([String(mealId)]);
     expect(loaded.data.strength.mesocycles[0].sessions[0].exercises[0].allocations[0]).toEqual({ muscleId: "chest", name: "Chest", share: 1 });
     expect(loaded.data.strength.mesocycles[0].sessions[0].exercises[0].sets[0]).toMatchObject({ id: expect.any(Number), completed: true });
+  });
+
+  it("serves cursor-based trend updates, deletions, and portfolio resets", async () => {
+    const { key } = await createArea();
+    const space = await env.DB.prepare("SELECT id FROM spaces WHERE access_key_hash=?").bind(await sha256(key)).first<{ id: number }>();
+    const fetchTrends = async (cursor?: number) => {
+      const response = await SELF.fetch(`https://tempo.test/api/trends${cursor === undefined ? "" : `?cursor=${cursor}`}`, { headers: auth(key) });
+      expect(response.status, await response.clone().text()).toBe(200);
+      return (await response.json() as { data: any }).data;
+    };
+
+    const initial = await fetchTrends();
+    expect(initial).toMatchObject({ cursor: 1, reset: true, meta: { currency: "CAD", hasHoldings: false } });
+    expect(initial.changes).toMatchObject({ steps: [], sleep: [], nutrition: [], volume: [] });
+
+    const unchanged = await fetchTrends(initial.cursor);
+    expect(unchanged).toMatchObject({ cursor: initial.cursor, reset: false, changes: {}, deleted: {} });
+
+    await env.DB.prepare("INSERT INTO cardio_daily_steps(space_id,recorded_date,step_count,synced_at) VALUES(?,?,?,?)")
+      .bind(space!.id, "2026-08-23", 10452, Date.now()).run();
+    const inserted = await fetchTrends(initial.cursor);
+    expect(inserted.reset).toBe(false);
+    expect(inserted.changes.steps).toEqual([{ date: "2026-08-23", value: 10452 }]);
+
+    await env.DB.prepare("UPDATE cardio_daily_steps SET step_count=9000,synced_at=? WHERE space_id=? AND recorded_date=?")
+      .bind(Date.now(), space!.id, "2026-08-23").run();
+    const updated = await fetchTrends(inserted.cursor);
+    expect(updated.changes.steps).toEqual([{ date: "2026-08-23", value: 9000 }]);
+
+    await env.DB.prepare("DELETE FROM cardio_daily_steps WHERE space_id=? AND recorded_date=?").bind(space!.id, "2026-08-23").run();
+    const deleted = await fetchTrends(updated.cursor);
+    expect(deleted.deleted.steps).toEqual(["2026-08-23"]);
+    const collapsed = await fetchTrends(initial.cursor);
+    expect(collapsed.changes.steps || []).toEqual([]);
+    expect(collapsed.deleted.steps).toEqual(["2026-08-23"]);
+
+    await env.DB.prepare("INSERT INTO finance_holdings(space_id,asset_type,symbol,native_currency,display_name,quantity) VALUES(?,'CASH',NULL,'CAD','Cash',1000)")
+      .bind(space!.id).run();
+    const reset = await fetchTrends(deleted.cursor);
+    expect(reset.reset).toBe(true);
+    expect(reset.cursor).toBeGreaterThan(deleted.cursor);
+    expect(reset.meta.hasHoldings).toBe(true);
+
+    expect((await SELF.fetch("https://tempo.test/api/trends?cursor=bad", { headers: auth(key) })).status).toBe(422);
   });
 });

@@ -114,6 +114,7 @@ let cardioSyncing = false;
 let cardioSyncError = "";
 let cardioError = "";
 let cardioRestingRange = "90";
+let stepsTrendRange = "90";
 let selectedCardioStepHourStart = null;
 let cardioCalendarMonth = dayKey().slice(0, 7);
 let selectedCardioSessionId = null;
@@ -124,12 +125,23 @@ let sleepLoadPromise = null;
 let sleepSyncing = false;
 let sleepSyncError = "";
 let sleepError = "";
+let sleepTrendRange = "90";
+let nutritionTrendRange = "90";
+let volumeTrendRange = "90";
+const selectedNutritionTrends = new Set(nutrientKeys);
+const selectedVolumeTrends = new Set();
+let volumeTrendInitialized = false;
 let financeData = null;
 let financeLoading = false;
 let financeLoadPromise = null;
 let financeRefreshing = false;
 let financeRefreshPromise = null;
 let financeError = "";
+let trendRange = "90";
+let trendData = null;
+let trendLoading = false;
+let trendLoadPromise = null;
+let trendError = "";
 let draggedAllocationCategoryId = null;
 let libraryTab = "foods";
 let strengthWeek = null;
@@ -1082,15 +1094,16 @@ function formatCardioDuration(seconds) {
   return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
-function cardioChart(points, valueFor, timeFor, labelFor, emptyMessage) {
+function cardioChart(points, valueFor, timeFor, labelFor, emptyMessage, axisValueFor = value => Math.round(value), valueStep = 5, minimumFloor = null, interactive = false) {
   if (!points.length) return `<p class="cardio-chart-empty">${escapeHtml(emptyMessage)}</p>`;
   const width = 720, height = 250, left = 43, right = 15, top = 17, bottom = 31;
   const values = points.map(valueFor).filter(Number.isFinite);
   const times = points.map(timeFor);
   const minimumTime = Math.min(...times), maximumTime = Math.max(...times);
-  let minimumValue = Math.floor((Math.min(...values) - 5) / 5) * 5;
-  let maximumValue = Math.ceil((Math.max(...values) + 5) / 5) * 5;
-  if (minimumValue === maximumValue) { minimumValue -= 5; maximumValue += 5; }
+  let minimumValue = Math.floor((Math.min(...values) - valueStep) / valueStep) * valueStep;
+  let maximumValue = Math.ceil((Math.max(...values) + valueStep) / valueStep) * valueStep;
+  if (minimumFloor !== null) minimumValue = Math.max(minimumFloor, minimumValue);
+  if (minimumValue === maximumValue) { minimumValue -= valueStep; maximumValue += valueStep; }
   const x = time => left + (maximumTime === minimumTime ? (width - left - right) / 2 : (time - minimumTime) / (maximumTime - minimumTime) * (width - left - right));
   const y = value => top + (maximumValue - value) / (maximumValue - minimumValue) * (height - top - bottom);
   const coordinates = points.map(point => [x(timeFor(point)), y(valueFor(point))]);
@@ -1099,11 +1112,13 @@ function cardioChart(points, valueFor, timeFor, labelFor, emptyMessage) {
   const grid = Array.from({ length: 5 }, (_, index) => {
     const value = minimumValue + (maximumValue - minimumValue) * index / 4;
     const lineY = y(value);
-    return `<line class="grid" x1="${left}" y1="${lineY}" x2="${width - right}" y2="${lineY}"/><text x="${left - 7}" y="${lineY + 3}" text-anchor="end">${Math.round(value)}</text>`;
+    return `<line class="grid" x1="${left}" y1="${lineY}" x2="${width - right}" y2="${lineY}"/><text x="${left - 7}" y="${lineY + 3}" text-anchor="end">${escapeHtml(axisValueFor(value))}</text>`;
   }).join("");
   const pointStep = Math.max(1, Math.ceil(points.length / 45));
   const circles = coordinates.map(([pointX, pointY], index) => index % pointStep ? "" : `<circle class="trend-point" cx="${pointX}" cy="${pointY}" r="3"><title>${escapeHtml(labelFor(points[index]))}</title></circle>`).join("");
-  return `<svg class="cardio-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(emptyMessage.replace(/^No /, "Chart of "))}">${grid}<path class="trend-area" d="${area}"/><path class="trend-line" d="${line}"/>${circles}<text x="${left}" y="${height - 8}">${escapeHtml(labelFor(points[0], true))}</text><text x="${width - right}" y="${height - 8}" text-anchor="end">${escapeHtml(labelFor(points.at(-1), true))}</text></svg>`;
+  const hitPoints = interactive ? coordinates.map(([pointX, pointY], index) => { const label = labelFor(points[index]); return `<circle class="trend-tooltip-hit" cx="${pointX}" cy="${pointY}" r="10" tabindex="0" data-trend-tooltip="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"/>`; }).join("") : "";
+  const chart = `<svg class="cardio-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(emptyMessage.replace(/^No /, "Chart of "))}">${grid}<path class="trend-area" d="${area}"/><path class="trend-line" d="${line}"/>${circles}${hitPoints}<text x="${left}" y="${height - 8}">${escapeHtml(labelFor(points[0], true))}</text><text x="${width - right}" y="${height - 8}" text-anchor="end">${escapeHtml(labelFor(points.at(-1), true))}</text></svg>`;
+  return interactive ? `<div class="trend-interactive-chart-wrap" data-trend-chart-wrap>${chart}<div class="trend-chart-tooltip" role="tooltip" hidden></div></div>` : chart;
 }
 
 function cardioPointsInRange(points, range) {
@@ -1426,7 +1441,6 @@ function renderCardio() {
         ${renderCardioStepsGoal()}
         ${renderCardioZone2Goal()}
       </div>
-      <section class="cardio-panel cardio-resting-panel"><div class="cardio-panel-heading"><h2>Resting heart rate</h2><select id="cardioRestingRange" aria-label="Resting heart rate range">${cardioRangeOptions(cardioRestingRange)}</select></div><div class="cardio-chart-wrap">${renderRestingHeartRateChart()}</div></section>
       <section class="cardio-panel cardio-steps-panel"><div class="cardio-panel-heading"><div><h2>Steps this week</h2><p>Hourly activity over the last seven days</p></div></div>${renderHourlyStepsHeatmap()}</section>
       ${renderCardioCalendar(sessions)}
     </div>`;
@@ -1434,12 +1448,12 @@ function renderCardio() {
 
 async function loadCardio(force = false) {
   if (cardioLoading) return cardioLoadPromise;
-  if (cardioData && !force) { renderCardio(); renderWeeklyChart(); if ($("#settingsView").classList.contains("active")) renderSettings(); return cardioData; }
-  cardioLoading = true; cardioError = ""; renderCardio(); if ($("#settingsView").classList.contains("active")) renderSettings();
+  if (cardioData && !force) { renderCardio(); renderTrends(); renderWeeklyChart(); if ($("#settingsView").classList.contains("active")) renderSettings(); return cardioData; }
+  cardioLoading = true; cardioError = ""; renderCardio(); renderTrends(); if ($("#settingsView").classList.contains("active")) renderSettings();
   cardioLoadPromise = (async () => {
     try { cardioData = await window.tempoServer.getCardio(); }
     catch (error) { cardioError = error.message || "Tempo could not load cardio data from D1."; }
-    finally { cardioLoading = false; cardioLoadPromise = null; renderCardio(); renderWeeklyChart(); if ($("#settingsView").classList.contains("active")) renderSettings(); }
+    finally { cardioLoading = false; cardioLoadPromise = null; renderCardio(); renderTrends(); renderWeeklyChart(); if ($("#settingsView").classList.contains("active")) renderSettings(); }
     return cardioData;
   })();
   return cardioLoadPromise;
@@ -1462,7 +1476,7 @@ async function syncCardio(force = false) {
     if (error.code !== "sync_in_progress") cardioSyncError = error.message || "Google Health sync failed.";
     cardioData = await window.tempoServer.getCardio().catch(() => cardioData);
     return false;
-  } finally { cardioSyncing = false; renderCardio(); renderWeeklyChart(); }
+  } finally { cardioSyncing = false; renderCardio(); renderTrends(); renderWeeklyChart(); }
 }
 
 async function refreshCardioSteps() {
@@ -1706,12 +1720,12 @@ function renderSleep() {
 
 async function loadSleep(force = false) {
   if (sleepLoading) return sleepLoadPromise;
-  if (sleepData && !force) { renderSleep(); renderWeeklyChart(); if ($("#settingsView").classList.contains("active")) renderSettings(); return sleepData; }
-  sleepLoading = true; sleepError = ""; renderSleep(); if ($("#settingsView").classList.contains("active")) renderSettings();
+  if (sleepData && !force) { renderSleep(); renderTrends(); renderWeeklyChart(); if ($("#settingsView").classList.contains("active")) renderSettings(); return sleepData; }
+  sleepLoading = true; sleepError = ""; renderSleep(); renderTrends(); if ($("#settingsView").classList.contains("active")) renderSettings();
   sleepLoadPromise = (async () => {
     try { sleepData = await window.tempoServer.getSleep(); }
     catch (error) { sleepError = error.message || "Tempo could not load sleep data from D1."; }
-    finally { sleepLoading = false; sleepLoadPromise = null; renderSleep(); renderWeeklyChart(); if ($("#cardioView").classList.contains("active")) renderCardio(); if ($("#settingsView").classList.contains("active")) renderSettings(); }
+    finally { sleepLoading = false; sleepLoadPromise = null; renderSleep(); renderTrends(); renderWeeklyChart(); if ($("#cardioView").classList.contains("active")) renderCardio(); if ($("#settingsView").classList.contains("active")) renderSettings(); }
     return sleepData;
   })();
   return sleepLoadPromise;
@@ -1726,10 +1740,10 @@ async function connectSleep() {
 
 async function syncSleep() {
   if (sleepSyncing) return;
-  sleepSyncing = true; sleepSyncError = ""; renderSleep();
+  sleepSyncing = true; sleepSyncError = ""; renderSleep(); renderTrends();
   try { sleepData = await window.tempoServer.syncSleep(); }
   catch (error) { if (error.code !== "sync_in_progress") sleepSyncError = error.message || "Google Health sleep sync failed."; sleepData = await window.tempoServer.getSleep().catch(() => sleepData); }
-  finally { sleepSyncing = false; renderSleep(); renderWeeklyChart(); }
+  finally { sleepSyncing = false; renderSleep(); renderTrends(); renderWeeklyChart(); }
 }
 
 async function visitSleep() {
@@ -1773,6 +1787,216 @@ function financeChangeCard(label, comparison, position) {
 
 function financePercent(value, digits = 1) {
   return `${new Intl.NumberFormat(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(Number(value) || 0)}%`;
+}
+
+function trendDate(date) {
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(`${date}T12:00:00`));
+}
+
+function financeAxisMoney(value, currency) {
+  try { return new Intl.NumberFormat(undefined, { style: "currency", currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 }).format(value); }
+  catch (_) { return `$${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value)}`; }
+}
+
+function trendMarketValueChart(points, currency) {
+  const width = 960, height = 350, left = 72, right = 24, top = 22, bottom = 44;
+  const values = points.map(point => Number(point.value));
+  let minimum = Math.min(...values), maximum = Math.max(...values);
+  const valuePadding = Math.max((maximum - minimum) * .12, Math.abs(maximum) * .025, 1);
+  minimum = Math.max(0, minimum - valuePadding); maximum += valuePadding;
+  const startTime = Date.parse(`${points[0].date}T12:00:00Z`), endTime = Date.parse(`${points.at(-1).date}T12:00:00Z`);
+  const span = Math.max(1, endTime - startTime);
+  const x = date => startTime === endTime ? left + (width - left - right) / 2 : left + (Date.parse(`${date}T12:00:00Z`) - startTime) / span * (width - left - right);
+  const y = value => top + (maximum - value) / Math.max(1, maximum - minimum) * (height - top - bottom);
+  let coordinates = points.map(point => [x(point.date), y(point.value)]);
+  if (coordinates.length === 1) coordinates = [[left, coordinates[0][1]], [width - right, coordinates[0][1]]];
+  const path = coordinates.map(([pointX, pointY], index) => `${index ? "L" : "M"}${pointX.toFixed(1)},${pointY.toFixed(1)}`).join(" ");
+  const area = `${path} L${coordinates.at(-1)[0].toFixed(1)},${height - bottom} L${coordinates[0][0].toFixed(1)},${height - bottom} Z`;
+  const grid = Array.from({ length: 5 }, (_, index) => {
+    const ratio = index / 4, pointY = top + ratio * (height - top - bottom), value = maximum - ratio * (maximum - minimum);
+    const roundedValue = Math.round(value / 100) * 100;
+    return `<g><line x1="${left}" y1="${pointY}" x2="${width - right}" y2="${pointY}"/><text x="${left - 12}" y="${pointY + 4}" text-anchor="end">${escapeHtml(financeAxisMoney(roundedValue, currency))}</text></g>`;
+  }).join("");
+  const dateIndexes = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])];
+  const dateLabels = dateIndexes.map(index => `<text class="trend-date-label" x="${x(points[index].date)}" y="${height - 13}" text-anchor="${index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"}">${escapeHtml(trendDate(points[index].date))}</text>`).join("");
+  const visiblePoints = points.map(point => `<circle class="trend-chart-point" cx="${x(point.date)}" cy="${y(point.value)}" r="3"/>`).join("");
+  const hitPoints = points.map((point, index) => { const label = `${trendDate(point.date)}: ${financeMoney(point.value, currency)}`; return `<circle class="trend-chart-hit" cx="${x(point.date)}" cy="${y(point.value)}" r="12" tabindex="0" data-trend-point="${index}" data-trend-tooltip="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"><title>${escapeHtml(label)}</title></circle>`; }).join("");
+  return `<div class="trend-chart-wrap" data-trend-chart-wrap><svg class="trend-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Market value from ${escapeHtml(trendDate(points[0].date))} to ${escapeHtml(trendDate(points.at(-1).date))}"><g class="trend-chart-grid">${grid}</g><path class="trend-chart-area" d="${area}"/><path class="trend-chart-line" d="${path}"/>${visiblePoints}${dateLabels}${hitPoints}</svg><div class="trend-chart-tooltip" role="tooltip" hidden></div></div>`;
+}
+
+function renderMarketValueTrendPanel() {
+  if (trendLoading && !trendData) return `<div class="cardio-loading">Loading market-value trend</div>`;
+  if (trendError && !trendData) return `<div class="cardio-error">${escapeHtml(trendError)}</div>`;
+  if (!trendData) return "";
+  const currency = trendData.meta?.currency || "CAD";
+  if (!trendData.meta?.hasHoldings) return `<section class="cardio-panel trend-market-panel"><div class="trend-panel-heading"><div><p class="eyebrow">MARKET VALUE</p><h2>${financeMoney(0, currency)}</h2></div><select id="marketTrendRange" aria-label="Market value range">${cardioRangeOptions(trendRange)}</select></div><div class="finance-empty"><span>${icon("chart-no-axes-combined", "⌁")}</span><h3>No portfolio to chart yet</h3><p>Add your first holding in Finances to start tracking market value.</p><button class="secondary-button trend-empty-action" type="button" data-trend-open-finances>Go to Finances</button></div></section>`;
+  const allPoints = trendData.series?.marketValue || [];
+  const points = cardioPointsInRange(allPoints, trendRange);
+  const first = points[0], last = points.at(-1);
+  const change = first && last ? Number(last.value) - Number(first.value) : null;
+  const percent = change != null && Number(first.value) ? change / Number(first.value) * 100 : null;
+  const changeClass = change > 0 ? "is-positive" : change < 0 ? "is-negative" : "";
+  return `<section class="cardio-panel trend-market-panel">
+    <div class="trend-panel-heading"><div><p class="eyebrow">MARKET VALUE</p><h2>${financeMoney(last?.value, currency)}</h2>${change == null ? "" : `<p class="trend-change ${changeClass}">${change > 0 ? "+" : change < 0 ? "−" : ""}${financeMoney(Math.abs(change), currency)} <span>(${percent > 0 ? "+" : percent < 0 ? "−" : ""}${Math.abs(percent).toFixed(2)}%)</span> over this period</p>`}</div><select id="marketTrendRange" aria-label="Market value range">${cardioRangeOptions(trendRange)}</select></div>
+    ${points.length ? trendMarketValueChart(points, currency) : `<div class="finance-empty"><span>${icon("chart-no-axes-combined", "⌁")}</span><h3>No market history yet</h3><p>Add a holding and refresh its price to start this chart.</p></div>`}
+    <p class="trend-chart-note">Based on your current holdings, valued at each day’s closing prices in ${escapeHtml(currency)}.</p>
+  </section>`;
+}
+
+function renderRestingHeartRateTrendPanel() {
+  const points = cardioPointsInRange((trendData?.series?.restingHeartRate || []).map(point => ({ date: point.date, beatsPerMinute: point.value })), cardioRestingRange);
+  const chart = cardioChart(points, point => point.beatsPerMinute, point => Date.parse(`${point.date}T00:00:00Z`), (point, axis = false) => axis ? cardioDateFormatter.format(new Date(`${point.date}T12:00:00Z`)) : `${cardioDateFormatter.format(new Date(`${point.date}T12:00:00Z`))}: ${point.beatsPerMinute} bpm`, "No resting heart-rate measurements have been synced for this range.", undefined, 5, null, true);
+  return `<section class="cardio-panel cardio-resting-panel"><div class="cardio-panel-heading"><div><p class="eyebrow">HEALTH</p><h2>Resting heart rate</h2></div><select id="cardioRestingRange" aria-label="Resting heart rate range">${cardioRangeOptions(cardioRestingRange)}</select></div><div class="cardio-chart-wrap">${chart}</div></section>`;
+}
+
+function stepsTrendPoints() {
+  return cardioPointsInRange((trendData?.series?.steps || []).map(point => ({ date: point.date, count: point.value })), stepsTrendRange);
+}
+
+function renderStepsTrendChart() {
+  const points = stepsTrendPoints();
+  const maximum = Math.max(0, ...points.map(point => Number(point.count) || 0));
+  const step = maximum <= 5000 ? 1000 : maximum <= 15000 ? 2500 : 5000;
+  const compactSteps = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+  return cardioChart(
+    points,
+    point => Math.max(0, Number(point.count) || 0),
+    point => Date.parse(`${point.date}T00:00:00Z`),
+    (point, axis = false) => axis ? cardioDateFormatter.format(new Date(`${point.date}T12:00:00Z`)) : `${cardioDateFormatter.format(new Date(`${point.date}T12:00:00Z`))}: ${new Intl.NumberFormat().format(point.count)} steps`,
+    "No daily step measurements have been synced for this range.",
+    value => compactSteps.format(value),
+    step,
+    0,
+    true
+  );
+}
+
+function renderStepsTrendPanel() {
+  return `<section class="cardio-panel steps-trend-panel"><div class="cardio-panel-heading"><div><h2>Steps over time</h2><p>Number of steps recorded each day</p></div><select id="stepsTrendRange" aria-label="Steps over time range">${cardioRangeOptions(stepsTrendRange)}</select></div><div class="cardio-chart-wrap">${renderStepsTrendChart()}</div></section>`;
+}
+
+function sleepTrendPoints() {
+  const points = (trendData?.series?.sleep || []).map(point => ({ date: point.date, minutesAsleep: point.value }));
+  return cardioPointsInRange(points, sleepTrendRange);
+}
+
+function renderSleepTrendChart() {
+  const points = sleepTrendPoints();
+  return cardioChart(
+    points,
+    point => point.minutesAsleep / 60,
+    point => Date.parse(`${point.date}T00:00:00Z`),
+    (point, axis = false) => axis ? cardioDateFormatter.format(new Date(`${point.date}T12:00:00Z`)) : `${cardioDateFormatter.format(new Date(`${point.date}T12:00:00Z`))}: ${formatSleepDuration(point.minutesAsleep)}`,
+    "No nightly sleep measurements have been synced for this range.",
+    value => `${value.toFixed(value % 1 ? 1 : 0)}h`,
+    1,
+    null,
+    true
+  );
+}
+
+function renderSleepTrendPanel() {
+  return `<section class="cardio-panel sleep-duration-trend-panel"><div class="cardio-panel-heading"><div><h2>Sleep over time</h2><p>Nightly time asleep, excluding naps</p></div><select id="sleepTrendRange" aria-label="Sleep over time range">${cardioRangeOptions(sleepTrendRange)}</select></div><div class="cardio-chart-wrap">${renderSleepTrendChart()}</div></section>`;
+}
+
+function nutritionTrendTotals(date) {
+  return (state.foodLogs[date] || []).reduce((totals, entry) => {
+    const food = entry.snapshot || entryFood(entry);
+    if (!food) return totals;
+    const ratio = Number(entry.servingSize) / Math.max(.01, Number(food.servingSize) || 1);
+    nutrientKeys.forEach(key => { totals[key] += Math.max(0, Number(food[key]) || 0) * ratio; });
+    return totals;
+  }, Object.fromEntries(nutrientKeys.map(key => [key, 0])));
+}
+
+function nutritionTrendPoints() {
+  return cardioPointsInRange(trendData?.series?.nutrition || [], nutritionTrendRange);
+}
+
+function renderNutritionTrendChart() {
+  const points = nutritionTrendPoints(), selected = nutrientKeys.filter(key => selectedNutritionTrends.has(key));
+  if (!selected.length) return `<p class="cardio-chart-empty">Choose at least one nutrient to display.</p>`;
+  if (!points.length) return `<p class="cardio-chart-empty">No nutrition has been logged yet.</p>`;
+  const width = 960, height = 350, left = 62, right = 62, top = 22, bottom = 44;
+  const calorieSelected = selected.includes("calories"), gramKeys = selected.filter(key => key !== "calories");
+  const calorieMaximum = Math.max(0, ...points.map(point => point.calories));
+  const gramMaximum = Math.max(0, ...points.flatMap(point => gramKeys.map(key => point[key])));
+  const calorieStep = calorieMaximum > 2500 ? 1000 : calorieMaximum > 1000 ? 500 : 250;
+  const gramStep = gramMaximum > 300 ? 100 : gramMaximum > 100 ? 50 : 25;
+  const calorieScale = Math.max(calorieStep, Math.ceil(calorieMaximum / calorieStep) * calorieStep);
+  const gramScale = Math.max(gramStep, Math.ceil(gramMaximum / gramStep) * gramStep);
+  const startTime = Date.parse(`${points[0].date}T12:00:00Z`), endTime = Date.parse(`${points.at(-1).date}T12:00:00Z`), span = Math.max(1, endTime - startTime);
+  const x = date => startTime === endTime ? left + (width - left - right) / 2 : left + (Date.parse(`${date}T12:00:00Z`) - startTime) / span * (width - left - right);
+  const y = (value, key) => top + (1 - value / (key === "calories" ? calorieScale : gramScale)) * (height - top - bottom);
+  const grid = Array.from({ length: 5 }, (_, index) => {
+    const ratio = index / 4, pointY = top + (1 - ratio) * (height - top - bottom);
+    const leftLabel = calorieSelected ? `${Math.round(calorieScale * ratio)} kcal` : `${Math.round(gramScale * ratio)} g`;
+    const rightLabel = calorieSelected && gramKeys.length ? `<text x="${width - right + 11}" y="${pointY + 4}">${Math.round(gramScale * ratio)} g</text>` : "";
+    return `<g><line x1="${left}" y1="${pointY}" x2="${width - right}" y2="${pointY}"/><text x="${left - 11}" y="${pointY + 4}" text-anchor="end">${leftLabel}</text>${rightLabel}</g>`;
+  }).join("");
+  const series = selected.map(key => {
+    const coordinates = points.map(point => [x(point.date), y(point[key], key)]);
+    const path = coordinates.map(([pointX, pointY], index) => `${index ? "L" : "M"}${pointX.toFixed(1)},${pointY.toFixed(1)}`).join(" ");
+    const dots = coordinates.map(([pointX, pointY], index) => { const label = `${trendDate(points[index].date)} · ${nutrientLabels[key]}: ${formatNutrition(points[index][key], key)}`; return `<circle cx="${pointX}" cy="${pointY}" r="3"><title>${escapeHtml(label)}</title></circle><circle class="trend-tooltip-hit" cx="${pointX}" cy="${pointY}" r="10" tabindex="0" data-trend-tooltip="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"/>`; }).join("");
+    return `<g class="nutrition-series" style="--series-color:${nutrientColors[key]}"><path d="${path}"/>${dots}</g>`;
+  }).join("");
+  const dateIndexes = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])];
+  const dateLabels = dateIndexes.map(index => `<text class="nutrition-date-label" x="${x(points[index].date)}" y="${height - 13}" text-anchor="${points.length === 1 ? "middle" : index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"}">${escapeHtml(trendDate(points[index].date))}</text>`).join("");
+  return `<div class="nutrition-trend-chart-wrap" data-trend-chart-wrap><svg class="nutrition-trend-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Daily ${escapeHtml(selected.map(key => nutrientLabels[key].toLowerCase()).join(", "))} over time"><g class="nutrition-chart-grid">${grid}</g>${series}${dateLabels}</svg><div class="trend-chart-tooltip" role="tooltip" hidden></div></div>`;
+}
+
+function renderNutritionTrendPanel() {
+  const toggles = nutrientKeys.map(key => `<button type="button" data-nutrition-trend="${key}" aria-pressed="${selectedNutritionTrends.has(key)}" style="--nutrient-color:${nutrientColors[key]}"><i></i>${escapeHtml(nutrientLabels[key])}</button>`).join("");
+  return `<section class="cardio-panel nutrition-trend-panel"><div class="cardio-panel-heading"><div><h2>Nutrition over time</h2><p>Daily totals from your food log</p></div><select id="nutritionTrendRange" aria-label="Nutrition over time range">${cardioRangeOptions(nutritionTrendRange)}</select></div><div class="nutrition-trend-toggles" aria-label="Nutrition series">${toggles}</div>${renderNutritionTrendChart()}</section>`;
+}
+
+function strengthVolumeTrendData() {
+  const knownColors = new Map(defaultMuscles.map(([id, , color]) => [id, color]));
+  const muscles = (trendData?.meta?.muscles || []).map((muscle, index) => ({ ...muscle, color: knownColors.get(muscle.id) || palette[index % palette.length] }));
+  const points = cardioPointsInRange(trendData?.series?.volume || [], volumeTrendRange);
+  return { muscles, points };
+}
+
+function renderStrengthVolumeTrendChart(data) {
+  if (!data.points.length || !data.muscles.length) return `<p class="cardio-chart-empty">Complete workout sets to start tracking weekly volume.</p>`;
+  const selected = data.muscles.filter(muscle => selectedVolumeTrends.has(muscle.id));
+  if (!selected.length) return `<p class="cardio-chart-empty">Choose at least one muscle group to display.</p>`;
+  const width = 960, height = 350, left = 66, right = 24, top = 22, bottom = 44;
+  const maximum = Math.max(0, ...data.points.flatMap(point => selected.map(muscle => Number(point.totals[muscle.id]) || 0)));
+  const step = maximum > 100000 ? 50000 : maximum > 50000 ? 25000 : maximum > 10000 ? 5000 : maximum > 5000 ? 2500 : 1000;
+  const scale = Math.max(step, Math.ceil(maximum / step) * step);
+  const startTime = Date.parse(`${data.points[0].date}T12:00:00Z`), endTime = Date.parse(`${data.points.at(-1).date}T12:00:00Z`), span = Math.max(1, endTime - startTime);
+  const fullPlotWidth = width - left - right;
+  const x = date => startTime === endTime ? left : left + (Date.parse(`${date}T12:00:00Z`) - startTime) / span * fullPlotWidth;
+  const y = value => top + (1 - value / scale) * (height - top - bottom);
+  const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+  const grid = Array.from({ length: 5 }, (_, index) => {
+    const ratio = index / 4, pointY = top + (1 - ratio) * (height - top - bottom);
+    return `<g><line x1="${left}" y1="${pointY}" x2="${width - right}" y2="${pointY}"/><text x="${left - 11}" y="${pointY + 4}" text-anchor="end">${compact.format(scale * ratio)} lb</text></g>`;
+  }).join("");
+  const series = selected.map(muscle => {
+    const coordinates = data.points.map(point => [x(point.date), y(Number(point.totals[muscle.id]) || 0)]);
+    const pathCoordinates = coordinates.length === 1 ? [coordinates[0], [width - right, coordinates[0][1]]] : coordinates;
+    const path = pathCoordinates.map(([pointX, pointY], index) => `${index ? "L" : "M"}${pointX.toFixed(1)},${pointY.toFixed(1)}`).join(" ");
+    const dots = coordinates.map(([pointX, pointY], index) => { const label = `Week of ${formatCalendarDate(data.points[index].date, { month: "short", day: "numeric", year: "numeric" })} · ${muscle.name}: ${formatLoad(data.points[index].totals[muscle.id] || 0)} lb`; return `<circle cx="${pointX}" cy="${pointY}" r="3"><title>${escapeHtml(label)}</title></circle><circle class="trend-tooltip-hit" cx="${pointX}" cy="${pointY}" r="10" tabindex="0" data-trend-tooltip="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"/>`; }).join("");
+    return `<g class="volume-trend-series" style="--series-color:${muscle.color}"><path d="${path}"/>${dots}</g>`;
+  }).join("");
+  const dateIndexes = [...new Set([0, Math.floor((data.points.length - 1) / 2), data.points.length - 1])];
+  const labels = dateIndexes.map(index => `<text class="volume-date-label" x="${x(data.points[index].date)}" y="${height - 13}" text-anchor="${data.points.length === 1 ? "middle" : index === 0 ? "start" : index === data.points.length - 1 ? "end" : "middle"}">${escapeHtml(formatCalendarDate(data.points[index].date, { month: "short", day: "numeric" }))}</text>`).join("");
+  return `<div class="volume-trend-chart-wrap" data-trend-chart-wrap><svg class="volume-trend-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Weekly training volume by muscle group"><g class="volume-chart-grid">${grid}</g>${series}${labels}</svg><div class="trend-chart-tooltip" role="tooltip" hidden></div></div>`;
+}
+
+function renderStrengthVolumeTrendPanel() {
+  const data = strengthVolumeTrendData();
+  if (!volumeTrendInitialized && data.muscles.length) { data.muscles.forEach(muscle => selectedVolumeTrends.add(muscle.id)); volumeTrendInitialized = true; }
+  const toggles = data.muscles.map(muscle => `<button type="button" data-volume-trend="${escapeHtml(muscle.id)}" aria-pressed="${selectedVolumeTrends.has(muscle.id)}" style="--muscle-color:${muscle.color}"><i></i>${escapeHtml(muscle.name)}</button>`).join("");
+  return `<section class="cardio-panel strength-volume-trend-panel"><div class="cardio-panel-heading"><div><h2>Volume over time</h2><p>Completed training volume by muscle group each week</p></div><select id="volumeTrendRange" aria-label="Volume over time range">${cardioRangeOptions(volumeTrendRange)}</select></div>${toggles ? `<div class="volume-trend-toggles" aria-label="Muscle-group series">${toggles}</div>` : ""}${renderStrengthVolumeTrendChart(data)}</section>`;
+}
+
+function renderTrends() {
+  const content = $("#trendsContent");
+  if (!content) return;
+  content.innerHTML = `<div class="trends-stack">${renderMarketValueTrendPanel()}${renderRestingHeartRateTrendPanel()}${renderStepsTrendPanel()}${renderSleepTrendPanel()}${renderNutritionTrendPanel()}${renderStrengthVolumeTrendPanel()}</div>`;
 }
 
 function financeAllocationGroups(holdings) {
@@ -1878,7 +2102,7 @@ async function loadFinances(force = false) {
   financeLoadPromise = (async () => {
     try { financeData = await window.tempoServer.getFinances(); }
     catch (error) { financeError = error.message || "Tempo could not load portfolio data from D1."; }
-    finally { financeLoading = false; financeLoadPromise = null; renderFinances(); renderFinanceSettings(); renderAllocationLibrary(); }
+    finally { financeLoading = false; financeLoadPromise = null; renderFinances(); renderTrends(); renderFinanceSettings(); renderAllocationLibrary(); }
     return financeData;
   })();
   return financeLoadPromise;
@@ -1893,7 +2117,7 @@ async function refreshFinancePrices(force = false) {
   financeRefreshPromise = (async () => {
     try { financeData = await window.tempoServer.refreshFinances(force); }
     catch (error) { financeError = error.message || "Yahoo Finance refresh failed."; }
-    finally { financeRefreshing = false; financeRefreshPromise = null; renderFinances(); renderFinanceSettings(); }
+    finally { financeRefreshing = false; financeRefreshPromise = null; renderFinances(); renderTrends(); renderFinanceSettings(); }
     return financeData;
   })();
   return financeRefreshPromise;
@@ -1902,6 +2126,47 @@ async function refreshFinancePrices(force = false) {
 async function visitFinances() {
   await loadFinances();
   if (activeView === "financesView" && !isRecentlySynced(financeData?.lastRefreshedAt)) await refreshFinancePrices();
+}
+
+function applyTrendDeltaInMemory(current, delta) {
+  const names = ["marketValue", "restingHeartRate", "steps", "sleep", "nutrition", "volume"];
+  const series = Object.fromEntries(names.map(name => [name, delta.reset ? [] : [...(current?.series?.[name] || [])]]));
+  Object.entries(delta.deleted || {}).forEach(([name, dates]) => {
+    const removed = new Set(dates);
+    series[name] = (series[name] || []).filter(point => !removed.has(point.date));
+  });
+  Object.entries(delta.changes || {}).forEach(([name, points]) => {
+    const byDate = new Map((series[name] || []).map(point => [point.date, point]));
+    points.forEach(point => byDate.set(point.date, point));
+    series[name] = [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
+  });
+  return { cursor: delta.cursor, meta: delta.meta, series };
+}
+
+async function loadTrends() {
+  if (trendLoading) return trendLoadPromise;
+  trendLoading = true; trendError = ""; renderTrends();
+  trendLoadPromise = (async () => {
+    try {
+      if (!trendData) {
+        trendData = await window.tempoServer.getCachedTrends();
+        if (trendData) renderTrends();
+      }
+      const delta = await window.tempoServer.getTrendDelta(trendData?.cursor ?? null);
+      trendData = await window.tempoServer.applyTrendDelta(delta) || applyTrendDeltaInMemory(trendData, delta);
+    } catch (error) {
+      trendError = error.message || "Tempo could not update trend data.";
+    } finally {
+      trendLoading = false; trendLoadPromise = null; renderTrends();
+    }
+    return trendData;
+  })();
+  return trendLoadPromise;
+}
+
+async function visitTrends() {
+  await loadTrends();
+  if (activeView === "trendsView") renderTrends();
 }
 
 function renderFinanceCategoryOptions(select, selectedId = null) {
@@ -2056,7 +2321,7 @@ function deleteFinanceHolding(row) {
   });
 }
 
-const primaryViewOrder = ["timersView", "foodLogView", "strengthView", "cardioView", "sleepView", "financesView"];
+const primaryViewOrder = ["timersView", "foodLogView", "strengthView", "cardioView", "sleepView", "financesView", "trendsView"];
 const primaryViewParents = { foodLibraryView: "foodLogView", workoutLibraryView: "strengthView", workoutSessionView: "strengthView", cardioSessionView: "cardioView", allocationLibraryView: "financesView" };
 let metroTransitionDirection = 0;
 
@@ -2249,6 +2514,7 @@ function showView(viewId, updateHistory = true) {
   if (viewId === "timersView" && !sleepData) loadSleep();
   if (viewId === "sleepView") visitSleep();
   if (viewId === "financesView") visitFinances();
+  if (viewId === "trendsView") visitTrends();
   if (viewId === "allocationLibraryView") { loadFinances(); renderAllocationLibrary(); }
   if (viewId === "cardioSessionView") renderCardioSessionDetailPage();
   const enteredView = $(`#${viewId}`);
@@ -3567,6 +3833,82 @@ $("#financesContent").addEventListener("keydown", event => {
   const card = $(".cardio-summary-card", carousel);
   carousel.scrollBy({ left: (event.key === "ArrowRight" ? 1 : -1) * ((card?.offsetWidth || carousel.clientWidth) + 12), behavior: "smooth" });
 });
+
+$("#trendsContent").addEventListener("click", event => {
+  const tooltipPoint = event.target.closest("[data-trend-tooltip]");
+  if (tooltipPoint) {
+    const alreadyPinned = tooltipPoint.classList.contains("is-tooltip-pinned");
+    hideAllTrendPointTooltips();
+    if (!alreadyPinned) showTrendPointTooltip(tooltipPoint, true);
+    return;
+  }
+  hideAllTrendPointTooltips();
+  if (event.target.closest("[data-trend-open-finances]")) { showView("financesView"); return; }
+  const nutritionKey = event.target.closest("[data-nutrition-trend]")?.dataset.nutritionTrend;
+  if (nutritionKey) {
+    if (selectedNutritionTrends.has(nutritionKey)) selectedNutritionTrends.delete(nutritionKey); else selectedNutritionTrends.add(nutritionKey);
+    renderTrends(); return;
+  }
+  const muscleKey = event.target.closest("[data-volume-trend]")?.dataset.volumeTrend;
+  if (muscleKey) {
+    if (selectedVolumeTrends.has(muscleKey)) selectedVolumeTrends.delete(muscleKey); else selectedVolumeTrends.add(muscleKey);
+    renderTrends(); return;
+  }
+});
+$("#trendsContent").addEventListener("change", event => {
+  if (event.target.id === "marketTrendRange") trendRange = event.target.value;
+  else if (event.target.id === "cardioRestingRange") cardioRestingRange = event.target.value;
+  else if (event.target.id === "stepsTrendRange") stepsTrendRange = event.target.value;
+  else if (event.target.id === "sleepTrendRange") sleepTrendRange = event.target.value;
+  else if (event.target.id === "nutritionTrendRange") nutritionTrendRange = event.target.value;
+  else if (event.target.id === "volumeTrendRange") volumeTrendRange = event.target.value;
+  else return;
+  renderTrends();
+});
+
+function showTrendPointTooltip(target, pin = false) {
+  const point = target?.closest?.("[data-trend-tooltip]");
+  const wrapper = point?.closest("[data-trend-chart-wrap]"), tooltip = wrapper?.querySelector(".trend-chart-tooltip");
+  if (!point || !tooltip) return;
+  const pinnedWrapper = $("#trendsContent [data-trend-chart-wrap][data-tooltip-pinned='true']");
+  if (!pin && pinnedWrapper) return;
+  if (pin) { wrapper.dataset.tooltipPinned = "true"; point.classList.add("is-tooltip-pinned"); }
+  const pointBox = point.getBoundingClientRect(), wrapperBox = wrapper.getBoundingClientRect();
+  tooltip.textContent = point.dataset.trendTooltip;
+  const pointLeft = pointBox.left + pointBox.width / 2 - wrapperBox.left + wrapper.scrollLeft;
+  tooltip.style.left = `${Math.max(65, Math.min(wrapper.scrollWidth - 65, pointLeft))}px`;
+  tooltip.style.top = `${pointBox.top - wrapperBox.top + wrapper.scrollTop}px`;
+  tooltip.hidden = false;
+}
+
+function hideAllTrendPointTooltips() {
+  $$("[data-trend-chart-wrap]", $("#trendsContent")).forEach(wrapper => {
+    delete wrapper.dataset.tooltipPinned;
+    wrapper.querySelectorAll(".is-tooltip-pinned").forEach(point => point.classList.remove("is-tooltip-pinned"));
+    const tooltip = wrapper.querySelector(".trend-chart-tooltip");
+    if (tooltip) tooltip.hidden = true;
+  });
+}
+
+function hideTrendPointTooltip(event) {
+  const wrapper = event.target.closest?.("[data-trend-chart-wrap]");
+  if (wrapper?.dataset.tooltipPinned === "true") return;
+  if (event.relatedTarget && wrapper?.contains(event.relatedTarget)) return;
+  const tooltip = wrapper?.querySelector(".trend-chart-tooltip");
+  if (tooltip) tooltip.hidden = true;
+}
+
+$("#trendsContent").addEventListener("mouseover", event => showTrendPointTooltip(event.target));
+$("#trendsContent").addEventListener("focusin", event => showTrendPointTooltip(event.target));
+$("#trendsContent").addEventListener("mouseout", hideTrendPointTooltip);
+$("#trendsContent").addEventListener("focusout", hideTrendPointTooltip);
+$("#trendsContent").addEventListener("keydown", event => {
+  if (!event.target.closest("[data-trend-tooltip]") || !["Enter", " "].includes(event.key)) return;
+  event.preventDefault(); event.target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+});
+document.addEventListener("click", event => {
+  if (!event.target.closest("#trendsContent [data-trend-tooltip]")) hideAllTrendPointTooltips();
+});
 $("#settingsFinanceCurrency").addEventListener("change", changeFinanceCurrency);
 $("#cardioContent").addEventListener("click", event => {
   const stepCell = event.target.closest("[data-cardio-step-hour]");
@@ -3581,11 +3923,6 @@ $("#cardioContent").addEventListener("click", event => {
   if (calendarAction === "today") { cardioCalendarMonth = dayKey().slice(0, 7); renderCardio(); return; }
   const sessionButton = event.target.closest("[data-cardio-session-id]");
   if (sessionButton) selectCardioSession(sessionButton.dataset.cardioSessionId);
-});
-$("#cardioContent").addEventListener("change", event => {
-  if (event.target.id === "cardioRestingRange") cardioRestingRange = event.target.value;
-  else return;
-  renderCardio();
 });
 $("#cardioZone2GoalForm").addEventListener("submit", saveCardioZone2Goal);
 $("#cardioStepsGoalForm").addEventListener("submit", saveCardioStepsGoal);

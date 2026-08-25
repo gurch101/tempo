@@ -36,9 +36,10 @@ describe("production database snapshot safety", () => {
     expect(shellPipeline).toContain("mktemp -d /tmp/tempo-production-export.XXXXXX");
   });
 
-  it("uses the production snapshot as the only local development database", () => {
-    expect(packageScripts.dev).toBe("npm run build:client && wrangler dev --env production --local --persist-to .wrangler/production-snapshot");
-    expect(packageScripts["migrate:local"]).toBe("npm run db:migrate:production-snapshot");
-    expect(packageScripts["dev:production-snapshot"]).toBe("npm run db:pull:production && npm run db:migrate:production-snapshot && npm run dev");
+  it("keeps the production snapshot separate from regular local development", () => {
+    expect(packageScripts.dev).toBe("npm run build:client && wrangler dev --port 8787");
+    expect(packageScripts["migrate:local"]).toBe("wrangler d1 migrations apply tempo-preview --local");
+    expect(packageScripts["dev:production-snapshot"]).toContain("npm run db:pull:production");
+    expect(packageScripts["dev:production-snapshot"]).toContain("--persist-to .wrangler/production-snapshot");
   });
 });

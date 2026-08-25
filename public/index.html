@@ -14,7 +14,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="/styles.css?v=98" />
+    <link rel="stylesheet" href="/styles.css?v=108" />
   </head>
   <body>
     <div class="offline-banner" role="status">Tempo is offline. New changes are paused until you reconnect and reload.</div>
@@ -31,6 +31,7 @@
           <a href="#cardio" data-view-link="cardioView">Cardio</a>
           <a href="#sleep" data-view-link="sleepView">Sleep</a>
           <a href="#finances" data-view-link="financesView">Finances</a>
+          <a href="#trends" data-view-link="trendsView">Trends</a>
         </nav>
         <div class="header-actions">
           <a class="settings-button" href="#settings" data-view-link="settingsView" aria-label="Settings" title="Settings">
@@ -191,6 +192,13 @@
             <button class="secondary-button" id="openAllocationLibraryButton" type="button">Allocation categories</button>
           </div>
           <div id="financesContent" aria-live="polite"><div class="cardio-loading">Loading finances</div></div>
+        </section>
+
+        <section id="trendsView" class="view" aria-labelledby="trendsHeading">
+          <div class="page-heading trends-page-heading">
+            <div><h1 id="trendsHeading">Trends</h1></div>
+          </div>
+          <div id="trendsContent" aria-live="polite"><div class="cardio-loading">Loading trends</div></div>
         </section>
 
         <section id="allocationLibraryView" class="view" aria-labelledby="allocationLibraryHeading">
@@ -548,6 +556,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="https://unpkg.com/lucide@1.28.0/dist/umd/lucide.js" referrerpolicy="no-referrer"></script>
     <script src="/vendor/qrcode.js?v=1"></script>
-    <script type="module" src="/api-client.js?v=59"></script>
+    <script type="module" src="/api-client.js?v=60"></script>
   </body>
 </html>

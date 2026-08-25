@@ -1,6 +1,7 @@
 import { PRIVATE_PATH_PATTERN, shouldReplaceMissingSpace } from "./private-space.js";
 import { createCalendar } from "./calendar.js";
 import { createSectionSaveQueue, loadConsistentSections } from "./browser-persistence.js?v=1";
+import { activateTrendNamespace, applyTrendDelta, readTrendCache } from "./trend-cache.js?v=1";
 
 const LAST_PATH_KEY = "tempo-last-private-path";
 const privateMatch = /^\/p\/([A-Za-z0-9_-]{43})(?:\/.*)?$/.exec(location.pathname);
@@ -31,6 +32,14 @@ if (!privateMatch) {
   let revision = 0;
   let mutationLoop = Promise.resolve();
   let offline = false;
+  const trendNamespacePromise = crypto.subtle.digest("SHA-256", new TextEncoder().encode(accessKey))
+    .then(bytes => [...new Uint8Array(bytes)].map(value => value.toString(16).padStart(2, "0")).join(""));
+  let trendNamespaceActivated = false;
+  const trendNamespace = async () => {
+    const namespace = await trendNamespacePromise;
+    if (!trendNamespaceActivated) { await activateTrendNamespace(namespace); trendNamespaceActivated = true; }
+    return namespace;
+  };
 
   const request = async (path, options = {}) => {
     const response = await fetch(path, { ...options, headers: { Authorization: `Bearer ${accessKey}`, ...(options.body ? { "content-type": "application/json" } : {}), ...options.headers } });
@@ -102,6 +111,9 @@ if (!privateMatch) {
     async setCardioZone2Goal(minutes) { return (await request("/api/cardio/zone-2-goal", { method: "PUT", body: JSON.stringify({ minutes }) })).data; },
     async setCardioStepsGoal(steps) { return (await request("/api/cardio/steps-goal", { method: "PUT", body: JSON.stringify({ steps }) })).data; },
     async getSleep() { return (await request("/api/sleep")).data; },
+    async getCachedTrends() { return readTrendCache(await trendNamespace()).catch(() => null); },
+    async getTrendDelta(cursor = null) { return (await request(`/api/trends${cursor == null ? "" : `?cursor=${encodeURIComponent(cursor)}`}`)).data; },
+    async applyTrendDelta(delta) { return applyTrendDelta(await trendNamespace(), delta).catch(() => null); },
     async setSleepGoal(minutes, startTime) { return (await request("/api/sleep/goal", { method: "PUT", body: JSON.stringify({ minutes, startTime }) })).data; },
     async updateHabitLog(date,habitId,record) { return mutationRequest(`/api/habit-logs/${encodeURIComponent(date)}/${encodeURIComponent(habitId)}`, "PUT", record); },
     async addStrengthSet(sessionExerciseId, set) { return mutationRequest(`/api/strength/session-exercises/${encodeURIComponent(sessionExerciseId)}/sets`, "POST", set); },
@@ -137,7 +149,7 @@ if (!privateMatch) {
     window.__TEMPO_BOOTSTRAP__ = bootstrap;
     window.__TEMPO_INITIAL_STATE__ = initialState;
     window.__TEMPO_PRIVATE_PATH__ = privatePath;
-    await import("./app.js?v=132");
+    await import("./app.js?v=145");
     document.documentElement.classList.remove("is-booting");
   } catch (error) {
     if (shouldReplaceMissingSpace(error.status, privatePath, rememberedPath)) {

@@ -10,12 +10,13 @@ Requirements: Node.js 22+ and npm.
 
 ```sh
 npm install
-npm run db:pull:production
 npm run migrate:local
 npm run dev
 ```
 
-The production pull is read-only and copies the remote database to `.wrangler/production-snapshot`. Both `migrate:local` and `dev` use that same local snapshot, so starting the regular development server preserves and reuses the pulled data. Run `npm run dev:production-snapshot` to pull, migrate, and start the server in one command. Wrangler prints the local URL.
+Regular development uses Wrangler's default local preview database. Local development is pinned to `http://localhost:8787` so OAuth callback URLs remain stable; stop any process already using that port before starting Tempo.
+
+To inspect a read-only copy of production data locally instead, run `npm run dev:production-snapshot`. The production pull copies the remote database to `.wrangler/production-snapshot`, applies pending migrations there, and starts a local Worker against that snapshot.
 
 Useful checks:
 
@@ -52,9 +53,12 @@ Tempo uses the Google Health API's `daily-resting-heart-rate`, `exercise`, `hear
 Create a Google OAuth web client and add each deployed callback URL as an authorized redirect URI:
 
 ```text
+http://localhost:8787/api/google-health/callback
 https://<preview-host>/api/google-health/callback
 https://<production-host>/api/google-health/callback
 ```
+
+Tempo builds the OAuth redirect URI from the origin serving the current page. Google requires an exact match, including scheme and port, so the localhost URI above must be registered on the same OAuth client configured in `.dev.vars`.
 
 In the Google Cloud console, enable the Google Health API, configure the OAuth consent screen and requested scopes, and create a Web Server OAuth client. Add test users while the app is in Testing mode. Google documents that refresh tokens issued in Testing mode expire after seven days. Public apps using Google Health's restricted scopes must complete Google's verification and security-assessment requirements.
 

@@ -111,9 +111,10 @@ interface ExistingSleepSessionRow {
 function syncWindow(now:number,lastSync?:number|null){
   const end=new Date(now);end.setUTCHours(0,0,0,0);end.setUTCDate(end.getUTCDate()+1);
   const earliest=new Date(end);earliest.setUTCDate(earliest.getUTCDate()-367);
-  const last=Number(lastSync),start=Number.isFinite(last)&&last>0?new Date(last):earliest;
+  const last=Number(lastSync),incremental=Number.isFinite(last)&&last>0,start=incremental?new Date(last):earliest;
+  if(incremental)start.setUTCDate(start.getUTCDate()-2);
   start.setUTCHours(0,0,0,0);if(start<earliest)start.setTime(earliest.getTime());if(start>end)start.setTime(end.getTime()-86400000);
-  return{startMs:start.getTime(),endMs:end.getTime(),startDate:start.toISOString().slice(0,10),endDate:end.toISOString().slice(0,10),startIso:start.toISOString(),endIso:end.toISOString(),incremental:Number.isFinite(last)&&last>0};
+  return{startMs:start.getTime(),endMs:end.getTime(),startDate:start.toISOString().slice(0,10),endDate:end.toISOString().slice(0,10),startIso:start.toISOString(),endIso:end.toISOString(),incremental};
 }
 
 export class GoogleHealthApiError extends Error {
