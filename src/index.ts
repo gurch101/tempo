@@ -10,7 +10,7 @@ import { readFoodLogs, readFoods, readHabitLogs, readHabits, readMeals, readNutr
 import { createExerciseSet, removeExerciseSet, updateExerciseSet, writeFoodLogs, writeFoods, writeHabitLog, writeHabitLogs, writeHabits, writeMeals, writeNutritionGoal, writeStrength, writeTimers } from "./section-writes";
 import { readCardio, readCardioSession } from "./cardio";
 import { readSleep } from "./sleep";
-import { FINANCE_ALLOCATION_COLORS, MarketDataError, normalizeCurrency, normalizeTicker, readFinances, refreshFinances } from "./finances";
+import { FINANCE_ALLOCATION_COLORS, MarketDataError, normalizeCurrency, normalizeTicker, readCurrentFinances, refreshFinances } from "./finances";
 import { decryptSecret, encryptSecret } from "./secrets";
 import { exchangeAuthorizationCode, GOOGLE_HEALTH_SCOPES, GoogleHealthApiError, importGoogleHealthData, importGoogleSleepData, refreshGoogleAccessToken } from "./google-health";
 import { readTrendDelta } from "./trends";
@@ -392,7 +392,7 @@ app.post("/api/sleep/sync", async c => {
 });
 
 app.get("/api/finances", async c => {
-  return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
+  return c.json({ data: await readCurrentFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
 });
 
 app.get("/api/trends", async c => {
@@ -413,7 +413,7 @@ app.post("/api/finances/allocation-categories", async c => {
   const existing = await c.env.DB.prepare("SELECT id FROM finance_allocation_categories WHERE space_id=? AND name=? COLLATE NOCASE").bind(c.var.space.id, name).first();
   if (existing) return error(c, 409, "allocation_category_exists", "That allocation category already exists.");
   await c.env.DB.prepare("INSERT INTO finance_allocation_categories(space_id,name,color,target_percentage,sort_order) VALUES(?,?,?,?,(SELECT COALESCE(MAX(sort_order),-1)+1 FROM finance_allocation_categories WHERE space_id=?))").bind(c.var.space.id, name, color, targetPercentage, c.var.space.id).run();
-  return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision }, 201);
+  return c.json({ data: await readCurrentFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision }, 201);
 });
 
 app.put("/api/finances/allocation-categories/order", async c => {
@@ -427,7 +427,7 @@ app.put("/api/finances/allocation-categories/order", async c => {
   if (storedIds.length !== requestedIds.length || [...requestedIds].sort((left, right) => left - right).some((id, index) => id !== storedIds[index]))
     return error(c, 422, "validation_failed", "Provide each allocation category exactly once in the desired order.");
   if (requestedIds.length) await c.env.DB.batch(requestedIds.map((id, index) => c.env.DB.prepare("UPDATE finance_allocation_categories SET sort_order=? WHERE id=? AND space_id=?").bind(index, id, c.var.space.id)));
-  return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
+  return c.json({ data: await readCurrentFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
 });
 
 app.put("/api/finances/allocation-categories/:id", async c => {
@@ -444,7 +444,7 @@ app.put("/api/finances/allocation-categories/:id", async c => {
   if (existing) return error(c, 409, "allocation_category_exists", "That allocation category already exists.");
   const updated = await c.env.DB.prepare("UPDATE finance_allocation_categories SET name=?,color=?,target_percentage=? WHERE id=? AND space_id=?").bind(name, color, targetPercentage, id, c.var.space.id).run();
   if (!updated.meta.changes) return error(c, 404, "not_found", "Allocation category not found.");
-  return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
+  return c.json({ data: await readCurrentFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
 });
 
 app.delete("/api/finances/allocation-categories/:id", async c => {
@@ -452,7 +452,7 @@ app.delete("/api/finances/allocation-categories/:id", async c => {
   if (!Number.isInteger(id) || id <= 0) return error(c, 404, "not_found", "Allocation category not found.");
   const deleted = await c.env.DB.prepare("DELETE FROM finance_allocation_categories WHERE id=? AND space_id=?").bind(id, c.var.space.id).run();
   if (!deleted.meta.changes) return error(c, 404, "not_found", "Allocation category not found.");
-  return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
+  return c.json({ data: await readCurrentFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
 });
 
 app.post("/api/finances/holdings", async c => {
@@ -484,7 +484,7 @@ app.post("/api/finances/holdings", async c => {
   }
   await c.env.DB.prepare("INSERT INTO finance_holdings(space_id,asset_type,symbol,native_currency,display_name,quantity,allocation_category_id) VALUES(?,?,?,?,?,?,?)")
     .bind(c.var.space.id, type, symbol, currency, type === "CASH" ? displayName : symbol, quantity, allocationCategoryId).run();
-  return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision }, 201);
+  return c.json({ data: await readCurrentFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision }, 201);
 });
 
 app.put("/api/finances/holdings/:id", async c => {
@@ -523,7 +523,7 @@ app.put("/api/finances/holdings/:id", async c => {
   const updated = await c.env.DB.prepare("UPDATE finance_holdings SET asset_type=?,symbol=?,native_currency=?,display_name=?,quantity=?,allocation_category_id=? WHERE id=? AND space_id=?")
     .bind(type, symbol, currency, displayName, quantity, allocationCategoryId, id, c.var.space.id).run();
   if (!updated.meta.changes) return error(c, 404, "not_found", "Holding not found.");
-  return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
+  return c.json({ data: await readCurrentFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
 });
 
 app.delete("/api/finances/holdings/:id", async c => {
@@ -531,7 +531,7 @@ app.delete("/api/finances/holdings/:id", async c => {
   if (!Number.isInteger(id) || id <= 0) return error(c, 404, "not_found", "Holding not found.");
   const deleted = await c.env.DB.prepare("DELETE FROM finance_holdings WHERE id=? AND space_id=?").bind(id, c.var.space.id).run();
   if (!deleted.meta.changes) return error(c, 404, "not_found", "Holding not found.");
-  return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
+  return c.json({ data: await readCurrentFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
 });
 
 app.put("/api/finances/currency", async c => {
@@ -540,17 +540,17 @@ app.put("/api/finances/currency", async c => {
   if (!currency) return error(c, 422, "validation_failed", "Choose a supported display currency.", { currency: "Choose a supported currency." });
   await c.env.DB.prepare("UPDATE spaces SET finance_display_currency=? WHERE id=? AND finance_display_currency IS NOT ?")
     .bind(currency,c.var.space.id,currency).run();
-  return c.json({ data: await readFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
+  return c.json({ data: await readCurrentFinances(c.env.DB, c.var.space.id), revision: c.var.space.revision });
 });
 
 app.post("/api/finances/refresh", async c => {
   try {
-    const current = await readFinances(c.env.DB, c.var.space.id);
+    const current = await readCurrentFinances(c.env.DB, c.var.space.id);
     if (c.req.query("force") !== "true" && isRecentlySynced(current.lastRefreshedAt)) {
       return c.json({ data: { ...current, sync: { skipped: true } }, revision: c.var.space.revision });
     }
     const sync = await refreshFinances(c.env.DB, c.var.space.id);
-    return c.json({ data: { ...(await readFinances(c.env.DB, c.var.space.id)), sync }, revision: c.var.space.revision });
+    return c.json({ data: { ...(await readCurrentFinances(c.env.DB, c.var.space.id)), sync }, revision: c.var.space.revision });
   } catch (cause) {
     const message = cause instanceof MarketDataError ? cause.message : "Tempo could not refresh Yahoo Finance market data.";
     return error(c, 502, "market_data_refresh_failed", message);

@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { applyD1Migrations, SELF } from "cloudflare:test";
 import { importGoogleHealthData, importGoogleSleepData } from "../src/google-health";
 import { readSleep } from "../src/sleep";
-import { readFinances, refreshFinances } from "../src/finances";
+import { readCurrentFinances, readFinances, refreshFinances } from "../src/finances";
 import { sha256 } from "../src/crypto";
 
 beforeEach(async () => { await applyD1Migrations(env.DB, env.TEST_MIGRATIONS); });
@@ -475,6 +475,9 @@ describe("private areas", () => {
       { date: "2026-08-08", value: 2346 },
       { date: "2026-08-09", value: 2530 }
     ]);
+    const currentPortfolio = await readCurrentFinances(env.DB, firstSpaceId, Date.parse("2026-08-09T22:00:00Z"));
+    expect(currentPortfolio.marketValueHistory).toEqual([{ date: "2026-08-09", value: 2530 }]);
+    expect(currentPortfolio.changes.yesterday).toMatchObject({ value: 2346, change: 184 });
     expect(portfolio.allocation).toMatchObject({ targetTotal: 60, categories: [expect.objectContaining({ id: equitiesId, name: "Equities", targetPercentage: 60, currentValue: 280 })] });
     expect(portfolio.allocation.categories[0].currentPercentage).toBeCloseTo(11.07, 2);
     const bondsResponse = await mutate("/api/finances/allocation-categories", { name: "Bonds", color: "#4c91a8", targetPercentage: 40 });

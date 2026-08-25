@@ -154,7 +154,8 @@ export async function readFinances(db: D1Database, spaceId: number, now = Date.n
   ]);
   const currency = normalizeCurrency(preference?.finance_display_currency) || "CAD";
   const today = dateInZone(now / 1000, String(preference?.timezone || "UTC"));
-  const historyStart = historyDays === null ? null : dateOffset(today, -historyDays);
+  const includeHistory = historyDays === null || historyDays > 0;
+  const historyStart = typeof historyDays === "number" && historyDays > 0 ? dateOffset(today, -historyDays) : null;
   const comparisons = { yesterday: dateOffset(today, -1), week: dateOffset(today, -7), month: dateOffset(today, -30) };
   const comparisonDates = Object.values(comparisons);
   const holdingRows=holdingResult.results||[];
@@ -170,7 +171,7 @@ export async function readFinances(db: D1Database, spaceId: number, now = Date.n
         ORDER BY candidate.price_date DESC LIMIT 1
       )
       ORDER BY price.symbol,price.price_date`).bind(...symbols,...comparisonDates).all<Row>():Promise.resolve(emptyRows()),
-    symbols.length?db.prepare(`SELECT symbol,native_currency,price_date,close_price FROM finance_daily_prices WHERE symbol IN (${symbols.map(()=>"?").join(",")})${historyStart ? " AND price_date>=?" : ""} AND close_price>0 ORDER BY price_date,symbol`).bind(...symbols,...(historyStart ? [historyStart] : [])).all<Row>():Promise.resolve(emptyRows())
+    symbols.length&&includeHistory?db.prepare(`SELECT symbol,native_currency,price_date,close_price FROM finance_daily_prices WHERE symbol IN (${symbols.map(()=>"?").join(",")})${historyStart ? " AND price_date>=?" : ""} AND close_price>0 ORDER BY price_date,symbol`).bind(...symbols,...(historyStart ? [historyStart] : [])).all<Row>():Promise.resolve(emptyRows())
   ]);
   const currencies=new Set(holdingRows.filter(row=>row.asset_type==="CASH"&&row.native_currency).map(row=>String(row.native_currency)));
   for(const row of quoteResult.results||[])currencies.add(String(row.native_currency));
@@ -187,7 +188,7 @@ export async function readFinances(db: D1Database, spaceId: number, now = Date.n
         ORDER BY candidate.rate_date DESC LIMIT 1
       )
       ORDER BY rate.from_currency,rate.rate_date`).bind(...sources,...comparisonDates,currency).all<Row>():Promise.resolve(emptyRows()),
-    sources.length?db.prepare(`SELECT from_currency,to_currency,rate_date,exchange_rate FROM finance_daily_fx_rates WHERE to_currency=? AND from_currency IN (${sources.map(()=>"?").join(",")})${historyStart ? " AND rate_date>=?" : ""} ORDER BY rate_date,from_currency`).bind(currency,...sources,...(historyStart ? [historyStart] : [])).all<Row>():Promise.resolve(emptyRows())
+    sources.length&&includeHistory?db.prepare(`SELECT from_currency,to_currency,rate_date,exchange_rate FROM finance_daily_fx_rates WHERE to_currency=? AND from_currency IN (${sources.map(()=>"?").join(",")})${historyStart ? " AND rate_date>=?" : ""} ORDER BY rate_date,from_currency`).bind(currency,...sources,...(historyStart ? [historyStart] : [])).all<Row>():Promise.resolve(emptyRows())
   ]);
   const quotes = new Map((quoteResult.results || []).map(row => [String(row.symbol), row]));
   const prices = new Map<string, Array<{ date: string; price: number; currency: string }>>();
@@ -289,4 +290,8 @@ export async function readFinances(db: D1Database, spaceId: number, now = Date.n
   }
   const lastRefreshedAt = refreshMetadataComplete && requiredUpdatedTimes.length ? Math.min(...requiredUpdatedTimes) : null;
   return { currency, currencies: FINANCE_CURRENCIES, allocationColors: FINANCE_ALLOCATION_COLORS, allocation, totalValue: total, marketValueHistory, changes, holdings: valuedHoldings, lastRefreshedAt };
+}
+
+export function readCurrentFinances(db: D1Database, spaceId: number, now = Date.now()) {
+  return readFinances(db, spaceId, now, 0);
 }
