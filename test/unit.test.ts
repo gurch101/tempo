@@ -138,6 +138,13 @@ describe("timer reconciliation", () => {
     expect(state.timers[0]).toMatchObject({ running: false, phase: "rest", remaining: 0, completedToday: 1 });
     expect(state.logs).toEqual({});
   });
+
+  it("reconciles a timer after a long mobile background suspension", () => {
+    const state = emptyState();
+    state.timers.push({ id: "timer-1", name: "Pomodoro", color: "#000", duration: 25 * 60, restDuration: 5 * 60, remaining: 20 * 60, pomodoro: true, phase: "work", running: true, trackCompletions: true, completedToday: 0, completionDate: "2026-01-04", lastTick: Date.parse("2026-01-04T12:00:00Z") });
+    reconcileTimers(state, Date.parse("2026-01-04T12:26:00Z"), "UTC");
+    expect(state.timers[0]).toMatchObject({ running: false, phase: "rest", remaining: 0, completedToday: 1, lastTick: null });
+  });
 });
 
 describe("v14 state contract", () => {

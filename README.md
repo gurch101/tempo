@@ -44,7 +44,7 @@ The Worker exposes:
 
 Authenticated requests send `Authorization: Bearer <capability>` and mutations send the latest revision through `If-Match`. A stale mutation receives `412 Precondition Failed`; the browser reloads the authoritative snapshot and asks the user to repeat the edit.
 
-Running timers persist a checkpoint immediately. Elapsed time is reconciled on the Worker across dates and scheduled weekdays using the private area's fixed IANA timezone. The browser animates between checkpoints without per-second writes.
+Running timers persist a checkpoint immediately. Elapsed time is reconciled on the Worker across dates and scheduled weekdays using the private area's fixed IANA timezone. The browser animates between checkpoints without per-second writes, saves a fresh checkpoint when the page is hidden or frozen, and reconciles immediately when it is shown again. This keeps countdowns accurate when a mobile browser suspends the page, although the browser cannot guarantee an audible alert while the screen is locked.
 
 ## Google Health, Cardio, and Sleep
 

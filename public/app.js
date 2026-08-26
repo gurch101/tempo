@@ -4201,20 +4201,30 @@ if (googleHealthResult) {
   const cleanUrl = new URL(location.href); cleanUrl.searchParams.delete("google_health"); history.replaceState(null, "", `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
 }
 refreshLucideIcons();
-setInterval(() => {
+function updateLiveTimers({ persistCheckpoint = false } = {}) {
   const currentDay = dayKey();
   const dayChanged = currentDay !== currentDayKey;
+  let countReset = false;
   if (dayChanged) {
     const wasViewingToday = visibleDay === currentDayKey;
     currentDayKey = currentDay;
     if (wasViewingToday) visibleDay = currentDay;
     foodLogDay = currentDay;
-    if (resetTimerCountsForCurrentDay(currentDay)) saveState("timers");
+    countReset = resetTimerCountsForCurrentDay(currentDay);
   }
   const changed = syncTimers();
+  if (countReset || (persistCheckpoint && changed)) saveState("timers");
   updateTimeLeft();
   if ((dayChanged || changed) && !draggedTimerId && !draggedWidgetId) renderTimers();
-}, 500);
+}
+
+// Mobile browsers are free to throttle or suspend JavaScript when a tab is hidden
+// or the screen is locked. Timer state is therefore derived from wall-clock
+// checkpoints, and lifecycle events reconcile it immediately around a suspension.
+document.addEventListener("visibilitychange", () => updateLiveTimers({ persistCheckpoint: true }));
+window.addEventListener("pageshow", () => updateLiveTimers({ persistCheckpoint: true }));
+document.addEventListener("freeze", () => updateLiveTimers({ persistCheckpoint: true }));
+setInterval(updateLiveTimers, 500);
 setInterval(() => {
   workoutCountdowns.forEach(countdown => syncWorkoutCountdown(countdown));
   if (activeView !== "workoutSessionView" || !activeStrengthSessionId) return;

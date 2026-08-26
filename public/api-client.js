@@ -149,7 +149,7 @@ if (!privateMatch) {
     window.__TEMPO_BOOTSTRAP__ = bootstrap;
     window.__TEMPO_INITIAL_STATE__ = initialState;
     window.__TEMPO_PRIVATE_PATH__ = privatePath;
-    await import("./app.js?v=145");
+    await import("./app.js?v=146");
     document.documentElement.classList.remove("is-booting");
   } catch (error) {
     if (shouldReplaceMissingSpace(error.status, privatePath, rememberedPath)) {
