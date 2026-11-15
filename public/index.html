@@ -14,7 +14,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="/styles.css?v=116" />
+    <link rel="stylesheet" href="/styles.css?v=117" />
   </head>
   <body>
     <div class="offline-banner" role="status">Tempo is offline. New changes are paused until you reconnect and reload.</div>
@@ -540,6 +540,7 @@
         <h2 id="strengthTemplateDialogTitle">Add a workout</h2>
         <input id="editStrengthTemplateId" type="hidden" />
         <label>Workout name<input id="strengthTemplateName" maxlength="60" required placeholder="e.g. Upper A" /></label>
+        <label class="workout-notes-field">Workout note (optional)<textarea id="strengthTemplateNotes" rows="3" maxlength="2000" placeholder="e.g. Rest 90 seconds between sets."></textarea></label>
         <div class="strength-template-heading"><span>EXERCISES</span><button class="secondary-button" id="addTemplateExercise" type="button"><i data-lucide="plus" aria-hidden="true">+</i>Add exercise</button></div>
         <div class="strength-template-matrix">
           <div class="strength-template-grid-head" aria-hidden="true"><span></span><span>Exercise</span><span>Muscle group</span><span>Sets</span><span>Reps</span><span>Load (lb)</span><span></span></div>
@@ -561,6 +562,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="https://unpkg.com/lucide@1.28.0/dist/umd/lucide.js" referrerpolicy="no-referrer"></script>
     <script src="/vendor/qrcode.js?v=1"></script>
-    <script type="module" src="/api-client.js?v=68"></script>
+    <script type="module" src="/api-client.js?v=69"></script>
   </body>
 </html>

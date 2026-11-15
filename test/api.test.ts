@@ -657,6 +657,42 @@ describe("private areas", () => {
     }
   });
 
+  it("stores and edits notes on reusable workouts without adding them to sessions", async () => {
+    const { key } = await createArea();
+    const note = "Rest 90 seconds between sets.\nTake 3 minutes after squats.";
+    const strength = {
+      unit: "lb", activeMesocycleId: "block",
+      workouts: [{ id: "workout", name: "Push", notes: note, exercises: [] }, { id: "legacy", name: "No note", exercises: [] }],
+      mesocycles: [{ id: "block", name: "Block", progressionRate: .025, workoutIds: ["workout"], weeks: [{ deload: false, completed: false }],
+        sessions: [{ id: "session", templateId: "workout", name: "Push", weekIndex: 0, date: "2026-08-12", createdAt: 1, status: "in-progress", exercises: [] }] }]
+    };
+    const response = await SELF.fetch("https://tempo.test/api/strength", {
+      method: "PUT", headers: { ...auth(key), "content-type": "application/json", "If-Match": '"0"', Origin: "https://tempo.test" }, body: JSON.stringify(strength)
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const initial = await response.json() as { data: any; revision: number };
+    expect(initial.data.workouts[0].notes).toBe(note);
+    expect(initial.data.workouts[1].notes).toBe("");
+    const workoutId = initial.data.workouts[0].id;
+    const sessionId = initial.data.mesocycles[0].sessions[0].id;
+    const updated = await SELF.fetch(`https://tempo.test/api/workouts/${workoutId}`, {
+      method: "PUT", headers: { ...auth(key), "content-type": "application/json", "If-Match": `"${initial.revision}"`, Origin: "https://tempo.test" },
+      body: JSON.stringify({ ...initial.data.workouts[0], notes: "Rest 2 minutes between sets." })
+    });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    const afterEdit = await getState(key);
+    expect(afterEdit.data.strength.workouts[0].notes).toBe("Rest 2 minutes between sets.");
+    expect(afterEdit.data.strength.mesocycles[0].sessions[0]).toMatchObject({ id: sessionId, templateId: workoutId });
+    expect(afterEdit.data.strength.mesocycles[0].sessions[0]).not.toHaveProperty("notes");
+    const cleared = await SELF.fetch(`https://tempo.test/api/workouts/${workoutId}`, {
+      method: "PUT", headers: { ...auth(key), "content-type": "application/json", "If-Match": `"${afterEdit.revision}"`, Origin: "https://tempo.test" },
+      body: JSON.stringify({ ...afterEdit.data.strength.workouts[0], notes: "" })
+    });
+    expect(cleared.status, await cleared.clone().text()).toBe(200);
+    const workouts = await (await SELF.fetch("https://tempo.test/api/workouts", { headers: auth(key) })).json() as { data: any[] };
+    expect(workouts.data[0].notes).toBe("");
+  });
+
   it("writes strength sets directly without replacing unrelated state", async () => {
     const { key } = await createArea();
     const bootstrap = await (await SELF.fetch("https://tempo.test/api/bootstrap", { headers: auth(key) })).json() as { revision: number };
@@ -752,12 +788,13 @@ describe("private areas", () => {
       meals: [{ id: "meal", title: "Breakfast", items: [{ foodId: "food", servingSize: 80 }] }],
       foodLogs: { "2026-08-07": [{ id: "entry", foodId: "food", mealId: "meal", servingSize: 40, loggedAt: 123, batchId: "batch", mealTitle: "Breakfast", snapshot: { title: "Oats", servingSize: 40, servingUnit: "g", calories: 150, carbs: 27, protein: 5, fats: 3, fibre: 4 } }] },
       nutritionGoal: { calories: 2200, carbs: 250, protein: 160, fats: 70, fibre: 30 }, recentFoodIds: [], recentMealIds: [],
-      strength: { unit: "lb", activeMesocycleId: "meso", workouts: [{ id: "workout", name: "Upper", exercises: [{ id: "template-exercise", name: "Press", muscleGroup: "Chest", sets: 3, reps: 8, load: 100 }] }], mesocycles: [{ id: "meso", name: "Block", progressionRate: .025, archived: false, workoutIds: ["workout"], weeks: [{ deload: false, completed: false }], sessions: [{ id: "session", templateId: "workout", name: "Upper", weekIndex: 0, date: "2026-08-07", createdAt: 123, status: "completed", unit: "lb", exercises: [{ id: "session-exercise", exerciseId: "template-exercise", name: "Press", muscleGroup: "Chest", mode: "external", bodyweightFactor: 1, allocations: [{ muscleId: "chest", name: "Chest", share: 1 }], sets: [{ id: "set", reps: 8, load: 100, completed: true }] }] }] }] },
+      strength: { unit: "lb", activeMesocycleId: "meso", workouts: [{ id: "workout", name: "Upper", notes: "Rest 90 seconds.\nKeep the last set controlled.", exercises: [{ id: "template-exercise", name: "Press", muscleGroup: "Chest", sets: 3, reps: 8, load: 100 }] }], mesocycles: [{ id: "meso", name: "Block", progressionRate: .025, archived: false, workoutIds: ["workout"], weeks: [{ deload: false, completed: false }], sessions: [{ id: "session", templateId: "workout", name: "Upper", weekIndex: 0, date: "2026-08-07", createdAt: 123, status: "completed", unit: "lb", exercises: [{ id: "session-exercise", exerciseId: "template-exercise", name: "Press", muscleGroup: "Chest", mode: "external", bodyweightFactor: 1, allocations: [{ muscleId: "chest", name: "Chest", share: 1 }], sets: [{ id: "set", reps: 8, load: 100, completed: true }] }] }] }] },
       legacyDefaultsRemoved: true
     };
     const saved = await SELF.fetch("https://tempo.test/api/state", { method: "PUT", headers: { ...auth(key), "content-type": "application/json", "If-Match": '"0"', Origin: "https://tempo.test" }, body: JSON.stringify(state) });
     expect(saved.status, await saved.text()).toBe(200);
     const loaded = await (await SELF.fetch("https://tempo.test/api/state", { headers: auth(key) })).json() as { data: any };
+    expect(loaded.data.strength.workouts[0].notes).toBe("Rest 90 seconds.\nKeep the last set controlled.");
     const timerId = loaded.data.timers[0].id; const habitId = loaded.data.widgets[0].id;
     const foodId = loaded.data.foods[0].id; const mealId = loaded.data.meals[0].id;
     expect(timerId).toEqual(expect.any(Number));
