@@ -1,7 +1,9 @@
 import { createCalendar } from "./calendar.js";
+import { habitStreak } from "./habit-streak.js?v=2";
 import { liveStepsPace } from "./cardio-metrics.js?v=1";
 import { pathForView, routeFromLocation } from "./routes.js";
 import { mergeSection } from "./state-sections.js?v=1";
+import { deltaPoints, periodDelta } from "./trend-delta.js?v=2";
 
 const STATE_SCHEMA_VERSION = 14;
 const STORAGE_KEY = "tempo-state-v2";
@@ -94,6 +96,8 @@ let persistencePending = false;
 let queuedPersistenceToast = "";
 let currentDayKey = dayKey();
 let visibleDay = currentDayKey;
+let habitStreakSummary = window.__TEMPO_HABIT_STREAKS__;
+let habitStreakRequest = null;
 let draggedTimerId = null;
 let draggedWidgetId = null;
 let audioContext = null;
@@ -636,7 +640,26 @@ function nutritionRingItems(date = visibleDay) {
   return nutrientKeys.filter(key => state.nutritionGoal[key] > 0).map(key => ({ id: `nutrition-${key}`, kind: "nutrition", key, name: nutrientLabels[key], color: nutrientColors[key], value: totals[key], goal: state.nutritionGoal[key] }));
 }
 
+function invalidateHabitStreaks() {
+  habitStreakSummary = null;
+  habitStreakRequest = null;
+}
+
+function loadHabitStreaks() {
+  const date = visibleDay;
+  if (habitStreakSummary?.date === date || habitStreakRequest?.date === date) return;
+  const request = { date };
+  habitStreakRequest = request;
+  window.tempoServer.getHabitStreaks(date).then(summary => {
+    if (habitStreakRequest !== request) return;
+    habitStreakSummary = summary;
+    habitStreakRequest = null;
+    renderHabits();
+  }).catch(() => { /* Keep the badge unavailable until navigation or refresh. */ });
+}
+
 function renderHabits() {
+  loadHabitStreaks();
   const grid = $("#habitGrid");
   const viewDate = dateFromKey(visibleDay);
   const historical = isHistoricalView();
@@ -647,11 +670,13 @@ function renderHabits() {
     const goal = widget.type === "counter" ? widget.goal : 1;
     const percent = Math.min(100, value / goal * 100);
     const complete = value >= goal;
+    const previous = habitStreakSummary?.date === visibleDay ? habitStreakSummary.previous[String(widget.id)] : undefined;
+    const streak = previous == null ? null : habitStreak(widget, record, previous, visibleDay, dayKey(), scheduled);
     const controls = widget.type === "counter"
       ? `<div class="counter-actions"><button data-action="decrement" ${scheduled && value > 0 ? "" : "disabled"} aria-label="Subtract one from ${escapeHtml(widget.name)}">${icon("minus", "−")}</button><button data-action="increment" ${scheduled ? "" : "disabled"} aria-label="Add one to ${escapeHtml(widget.name)}">${icon("plus", "+")}</button></div>`
       : `<button class="toggle-action ${complete ? "done" : ""}" data-action="toggle-widget" ${scheduled ? "" : "disabled"}>${!scheduled ? `Not scheduled ${historical ? "this day" : "today"}` : complete ? `${icon("check", "✓")}Done for ${historical ? "this day" : "today"}` : "Mark as done"}</button>`;
     return `<article class="habit-card ${scheduled ? "" : "off-schedule"}" style="--widget-color:${widget.color}" data-id="${widget.id}" draggable="false">
-      <div class="habit-top"><div><span class="habit-kind">${widget.type === "counter" ? `${icon("list-plus", "+")}Counter` : `${icon("check", "✓")}Toggle`}</span><h3>${escapeHtml(widget.name)}</h3><p class="schedule-copy">${formatSchedule(widget)}</p></div><div class="card-tools"><span class="drag-handle" role="button" tabindex="0" aria-label="Drag ${escapeHtml(widget.name)} to reorder" title="Drag to reorder">${icon("grip-vertical", "⋮")}</span><button class="menu-button" data-action="widget-menu" aria-label="Options for ${escapeHtml(widget.name)}">${icon("ellipsis", "…")}</button></div></div>
+      <div class="habit-top"><div><div class="habit-labels"><span class="habit-kind">${widget.type === "counter" ? `${icon("list-plus", "+")}Counter` : `${icon("check", "✓")}Toggle`}</span><span class="habit-streak ${streak ? "active" : ""}" title="Consecutive completed scheduled days. Off days keep your streak; today stays open until midnight.">${icon("flame", "♨")}${streak == null ? "Streak —" : `${streak}-day streak`}</span></div><h3>${escapeHtml(widget.name)}</h3><p class="schedule-copy">${formatSchedule(widget)}</p></div><div class="card-tools"><span class="drag-handle" role="button" tabindex="0" aria-label="Drag ${escapeHtml(widget.name)} to reorder" title="Drag to reorder">${icon("grip-vertical", "⋮")}</span><button class="menu-button" data-action="widget-menu" aria-label="Options for ${escapeHtml(widget.name)}">${icon("ellipsis", "…")}</button></div></div>
       <div class="menu habit-menu"><button data-action="edit-widget">Edit habit</button><button class="danger" data-action="delete-widget">Delete habit</button></div>
       ${widget.type === "counter" ? `<div class="habit-progress"><div class="habit-progress-line"><strong>${value}</strong><span>of ${goal} ${historical ? "this day" : "today"}</span></div><div class="progress-track"><i style="--value:${percent}%"></i></div></div>` : ""}
       ${controls}
@@ -1798,6 +1823,25 @@ function financeAxisMoney(value, currency) {
   catch (_) { return `$${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value)}`; }
 }
 
+function trendChangeMarkup(points, valueFor, formatValue, label = "", color = "") {
+  const delta = periodDelta(points, valueFor);
+  if (!delta) return "";
+  const changeClass = delta.change > 0 ? "is-positive" : delta.change < 0 ? "is-negative" : "";
+  const sign = delta.change > 0 ? "+" : delta.change < 0 ? "−" : "";
+  const percent = delta.percent == null ? "" : ` <span>(${delta.percent > 0 ? "+" : delta.percent < 0 ? "−" : ""}${Math.abs(delta.percent).toFixed(2)}%)</span>`;
+  const style = color ? ` style="--trend-series-color:${escapeHtml(color)}"` : "";
+  return `<p class="trend-change ${changeClass}${label ? " has-series-label" : ""}"${style}>${label ? `<i></i><b>${escapeHtml(label)}</b> ` : ""}${sign}${escapeHtml(formatValue(Math.abs(delta.change)))}${percent} over this period</p>`;
+}
+
+function trendChangeListMarkup(changes) {
+  const content = changes.filter(Boolean).join("");
+  return content ? `<div class="trend-change-list" aria-label="Changes over this period">${content}</div>` : "";
+}
+
+function trendDeltaPoints(points) {
+  return deltaPoints(points, { excludeDate: dayKey() });
+}
+
 function trendMarketValueChart(points, currency) {
   const width = 960, height = 350, left = 72, right = 24, top = 22, bottom = 44;
   const values = points.map(point => Number(point.value));
@@ -1829,15 +1873,13 @@ function renderMarketValueTrendPanel() {
   if (trendError && !trendData) return `<div class="cardio-error">${escapeHtml(trendError)}</div>`;
   if (!trendData) return "";
   const currency = trendData.meta?.currency || "CAD";
-  if (!trendData.meta?.hasHoldings) return `<section class="cardio-panel trend-market-panel"><div class="trend-panel-heading"><div><p class="eyebrow">MARKET VALUE</p><h2>${financeMoney(0, currency)}</h2></div><select id="marketTrendRange" aria-label="Market value range">${cardioRangeOptions(trendRange)}</select></div><div class="finance-empty"><span>${icon("chart-no-axes-combined", "⌁")}</span><h3>No portfolio to chart yet</h3><p>Add your first holding in Finances to start tracking market value.</p><button class="secondary-button trend-empty-action" type="button" data-trend-open-finances>Go to Finances</button></div></section>`;
+  if (!trendData.meta?.hasHoldings) return `<section class="cardio-panel trend-market-panel"><div class="trend-panel-heading"><div><h2>Market value</h2><strong class="trend-current-value">${financeMoney(0, currency)}</strong></div><select id="marketTrendRange" aria-label="Market value range">${cardioRangeOptions(trendRange)}</select></div><div class="finance-empty"><span>${icon("chart-no-axes-combined", "⌁")}</span><h3>No portfolio to chart yet</h3><p>Add your first holding in Finances to start tracking market value.</p><button class="secondary-button trend-empty-action" type="button" data-trend-open-finances>Go to Finances</button></div></section>`;
   const allPoints = trendData.series?.marketValue || [];
   const points = cardioPointsInRange(allPoints, trendRange);
-  const first = points[0], last = points.at(-1);
-  const change = first && last ? Number(last.value) - Number(first.value) : null;
-  const percent = change != null && Number(first.value) ? change / Number(first.value) * 100 : null;
-  const changeClass = change > 0 ? "is-positive" : change < 0 ? "is-negative" : "";
+  const last = points.at(-1);
+  const changeMarkup = trendChangeMarkup(points, point => point.value, value => financeMoney(value, currency));
   return `<section class="cardio-panel trend-market-panel">
-    <div class="trend-panel-heading"><div><p class="eyebrow">MARKET VALUE</p><h2>${financeMoney(last?.value, currency)}</h2>${change == null ? "" : `<p class="trend-change ${changeClass}">${change > 0 ? "+" : change < 0 ? "−" : ""}${financeMoney(Math.abs(change), currency)} <span>(${percent > 0 ? "+" : percent < 0 ? "−" : ""}${Math.abs(percent).toFixed(2)}%)</span> over this period</p>`}</div><select id="marketTrendRange" aria-label="Market value range">${cardioRangeOptions(trendRange)}</select></div>
+    <div class="trend-panel-heading"><div><h2>Market value</h2><strong class="trend-current-value">${financeMoney(last?.value, currency)}</strong>${changeMarkup}</div><select id="marketTrendRange" aria-label="Market value range">${cardioRangeOptions(trendRange)}</select></div>
     ${points.length ? trendMarketValueChart(points, currency) : `<div class="finance-empty"><span>${icon("chart-no-axes-combined", "⌁")}</span><h3>No market history yet</h3><p>Add a holding and refresh its price to start this chart.</p></div>`}
     <p class="trend-chart-note">Based on your current holdings, valued at each day’s closing prices in ${escapeHtml(currency)}.</p>
   </section>`;
@@ -1846,7 +1888,8 @@ function renderMarketValueTrendPanel() {
 function renderRestingHeartRateTrendPanel() {
   const points = cardioPointsInRange((trendData?.series?.restingHeartRate || []).map(point => ({ date: point.date, beatsPerMinute: point.value })), cardioRestingRange);
   const chart = cardioChart(points, point => point.beatsPerMinute, point => Date.parse(`${point.date}T00:00:00Z`), (point, axis = false) => axis ? cardioDateFormatter.format(new Date(`${point.date}T12:00:00Z`)) : `${cardioDateFormatter.format(new Date(`${point.date}T12:00:00Z`))}: ${point.beatsPerMinute} bpm`, "No resting heart-rate measurements have been synced for this range.", undefined, 5, null, true);
-  return `<section class="cardio-panel cardio-resting-panel"><div class="cardio-panel-heading"><div><p class="eyebrow">HEALTH</p><h2>Resting heart rate</h2></div><select id="cardioRestingRange" aria-label="Resting heart rate range">${cardioRangeOptions(cardioRestingRange)}</select></div><div class="cardio-chart-wrap">${chart}</div></section>`;
+  const change = trendChangeMarkup(trendDeltaPoints(points), point => point.beatsPerMinute, value => `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)} bpm`);
+  return `<section class="cardio-panel cardio-resting-panel"><div class="cardio-panel-heading"><div><h2>Resting heart rate</h2>${change}</div><select id="cardioRestingRange" aria-label="Resting heart rate range">${cardioRangeOptions(cardioRestingRange)}</select></div><div class="cardio-chart-wrap">${chart}</div></section>`;
 }
 
 function stepsTrendPoints() {
@@ -1872,7 +1915,9 @@ function renderStepsTrendChart() {
 }
 
 function renderStepsTrendPanel() {
-  return `<section class="cardio-panel steps-trend-panel"><div class="cardio-panel-heading"><div><h2>Steps over time</h2><p>Number of steps recorded each day</p></div><select id="stepsTrendRange" aria-label="Steps over time range">${cardioRangeOptions(stepsTrendRange)}</select></div><div class="cardio-chart-wrap">${renderStepsTrendChart()}</div></section>`;
+  const points = stepsTrendPoints();
+  const change = trendChangeMarkup(trendDeltaPoints(points), point => point.count, value => `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value)} steps`);
+  return `<section class="cardio-panel steps-trend-panel"><div class="cardio-panel-heading"><div><h2>Steps over time</h2><p>Number of steps recorded each day</p>${change}</div><select id="stepsTrendRange" aria-label="Steps over time range">${cardioRangeOptions(stepsTrendRange)}</select></div><div class="cardio-chart-wrap">${renderStepsTrendChart()}</div></section>`;
 }
 
 function sleepTrendPoints() {
@@ -1896,7 +1941,9 @@ function renderSleepTrendChart() {
 }
 
 function renderSleepTrendPanel() {
-  return `<section class="cardio-panel sleep-duration-trend-panel"><div class="cardio-panel-heading"><div><h2>Sleep over time</h2><p>Nightly time asleep, excluding naps</p></div><select id="sleepTrendRange" aria-label="Sleep over time range">${cardioRangeOptions(sleepTrendRange)}</select></div><div class="cardio-chart-wrap">${renderSleepTrendChart()}</div></section>`;
+  const points = sleepTrendPoints();
+  const change = trendChangeMarkup(trendDeltaPoints(points), point => point.minutesAsleep, value => formatSleepDuration(value));
+  return `<section class="cardio-panel sleep-duration-trend-panel"><div class="cardio-panel-heading"><div><h2>Sleep over time</h2><p>Nightly time asleep, excluding naps</p>${change}</div><select id="sleepTrendRange" aria-label="Sleep over time range">${cardioRangeOptions(sleepTrendRange)}</select></div><div class="cardio-chart-wrap">${renderSleepTrendChart()}</div></section>`;
 }
 
 function nutritionTrendTotals(date) {
@@ -1946,8 +1993,11 @@ function renderNutritionTrendChart() {
 }
 
 function renderNutritionTrendPanel() {
+  const points = nutritionTrendPoints();
+  const deltaEligiblePoints = trendDeltaPoints(points);
+  const changes = trendChangeListMarkup(nutrientKeys.filter(key => selectedNutritionTrends.has(key)).map(key => trendChangeMarkup(deltaEligiblePoints, point => point[key], value => formatNutrition(value, key), nutrientLabels[key], nutrientColors[key])));
   const toggles = nutrientKeys.map(key => `<button type="button" data-nutrition-trend="${key}" aria-pressed="${selectedNutritionTrends.has(key)}" style="--nutrient-color:${nutrientColors[key]}"><i></i>${escapeHtml(nutrientLabels[key])}</button>`).join("");
-  return `<section class="cardio-panel nutrition-trend-panel"><div class="cardio-panel-heading"><div><h2>Nutrition over time</h2><p>Daily totals from your food log</p></div><select id="nutritionTrendRange" aria-label="Nutrition over time range">${cardioRangeOptions(nutritionTrendRange)}</select></div><div class="nutrition-trend-toggles" aria-label="Nutrition series">${toggles}</div>${renderNutritionTrendChart()}</section>`;
+  return `<section class="cardio-panel nutrition-trend-panel"><div class="cardio-panel-heading"><div><h2>Nutrition over time</h2><p>Daily totals from your food log</p>${changes}</div><select id="nutritionTrendRange" aria-label="Nutrition over time range">${cardioRangeOptions(nutritionTrendRange)}</select></div><div class="nutrition-trend-toggles" aria-label="Nutrition series">${toggles}</div>${renderNutritionTrendChart()}</section>`;
 }
 
 function strengthVolumeTrendData() {
@@ -1989,8 +2039,10 @@ function renderStrengthVolumeTrendChart(data) {
 function renderStrengthVolumeTrendPanel() {
   const data = strengthVolumeTrendData();
   if (!volumeTrendInitialized && data.muscles.length) { data.muscles.forEach(muscle => selectedVolumeTrends.add(muscle.id)); volumeTrendInitialized = true; }
+  const deltaEligiblePoints = deltaPoints(data.points, { excludeLatest: true });
+  const changes = trendChangeListMarkup(data.muscles.filter(muscle => selectedVolumeTrends.has(muscle.id)).map(muscle => trendChangeMarkup(deltaEligiblePoints, point => point.totals[muscle.id] || 0, value => `${formatLoad(value)} lb`, muscle.name, muscle.color)));
   const toggles = data.muscles.map(muscle => `<button type="button" data-volume-trend="${escapeHtml(muscle.id)}" aria-pressed="${selectedVolumeTrends.has(muscle.id)}" style="--muscle-color:${muscle.color}"><i></i>${escapeHtml(muscle.name)}</button>`).join("");
-  return `<section class="cardio-panel strength-volume-trend-panel"><div class="cardio-panel-heading"><div><h2>Volume over time</h2><p>Completed training volume by muscle group each week</p></div><select id="volumeTrendRange" aria-label="Volume over time range">${cardioRangeOptions(volumeTrendRange)}</select></div>${toggles ? `<div class="volume-trend-toggles" aria-label="Muscle-group series">${toggles}</div>` : ""}${renderStrengthVolumeTrendChart(data)}</section>`;
+  return `<section class="cardio-panel strength-volume-trend-panel"><div class="cardio-panel-heading"><div><h2>Volume over time</h2><p>Completed training volume by muscle group each week</p>${changes}</div><select id="volumeTrendRange" aria-label="Volume over time range">${cardioRangeOptions(volumeTrendRange)}</select></div>${toggles ? `<div class="volume-trend-toggles" aria-label="Muscle-group series">${toggles}</div>` : ""}${renderStrengthVolumeTrendChart(data)}</section>`;
 }
 
 function renderTrends() {
@@ -4231,7 +4283,16 @@ setInterval(() => {
   const session = activeMesocycle()?.sessions.find(item => item.id === activeStrengthSessionId);
   if (session) updateWorkoutCountdownUI(session);
 }, 250);
+window.addEventListener("tempo:habit-log-saved", event => {
+  // Editing the displayed day does not change its preceding streak. A save
+  // that finishes after navigating to a later day can change that baseline.
+  if (event.detail.date < visibleDay) {
+    invalidateHabitStreaks();
+    renderHabits();
+  }
+});
 window.addEventListener("tempo:saved-state", event => {
+  if ("habits" in event.detail || "habitLogs" in event.detail) invalidateHabitStreaks();
   const activeSession = state.strength.mesocycles.flatMap(meso => meso.sessions || []).find(session => session.id === activeStrengthSessionId);
   Object.entries(event.detail).forEach(([section, data]) => mergeSection(state, section, data));
   state = migrateState(state);
@@ -4253,6 +4314,7 @@ window.addEventListener("tempo:save-error", event => {
   else toast(event.detail?.message || "Tempo could not save that change.");
 });
 window.addEventListener("tempo:conflict", event => {
+  invalidateHabitStreaks();
   state = migrateState(event.detail);
   activeStrengthSessionId = null;
   renderTimers(); renderHabits(); renderFoodLibrary(); renderFoodLog(); renderStrength(); renderWorkoutLibrary(); renderDailyRings(); renderWeeklyChart();

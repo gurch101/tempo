@@ -14,6 +14,7 @@ import { FINANCE_ALLOCATION_COLORS, MarketDataError, normalizeCurrency, normaliz
 import { decryptSecret, encryptSecret } from "./secrets";
 import { exchangeAuthorizationCode, GOOGLE_HEALTH_SCOPES, GoogleHealthApiError, importGoogleHealthData, importGoogleSleepData, refreshGoogleAccessToken } from "./google-health";
 import { readTrendDelta } from "./trends";
+import { readHabitStreaks } from "./habit-streaks";
 
 type AppContext = Context<{ Bindings: Bindings }>;
 const app = new Hono<{ Bindings: Bindings }>();
@@ -664,6 +665,12 @@ for(const [route,section]of Object.entries(sections)){
 
 const validDateQuery=(value:string)=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;const parsed=Date.parse(`${value}T00:00:00Z`);return Number.isFinite(parsed)&&new Date(parsed).toISOString().slice(0,10)===value;};
 function dateRangeQuery(c:AppContext){const from=c.req.query("from"),to=c.req.query("to");if((from&&!validDateQuery(from))||(to&&!validDateQuery(to))||(from&&to&&from>to))return null;return{from,to};}
+app.get("/api/habit-streaks", async c => {
+  const today = localDateInfo(Date.now(), c.var.space.timezone).date;
+  const date = c.req.query("date") || today;
+  if (!validDateQuery(date) || date > today) return error(c, 422, "validation_failed", "Use a valid date on or before today.");
+  return c.json({ data: await readHabitStreaks(c.env.DB, c.var.space.id, date), revision: c.var.space.revision });
+});
 app.get("/api/habit-logs", async c => {const range=dateRangeQuery(c);if(!range)return error(c,422,"validation_failed","Use a valid chronological date range.",{date:"Use YYYY-MM-DD dates with from on or before to."});return c.json({ data: await readHabitLogs(c.env.DB,c.var.space.id,range.from,range.to), revision: c.var.space.revision });});
 app.put("/api/habit-logs", async c => {const body=await c.req.json<TempoState["logs"]>(),dates=Object.keys(body).sort();return saveSection(c,body,writeHabitLogs,()=>dates.length?readHabitLogs(c.env.DB,c.var.space.id,dates[0],dates.at(-1)):Promise.resolve({}));});
 

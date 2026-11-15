@@ -72,11 +72,12 @@ if (!privateMatch) {
     const today = calendar.dayKey(new Date(bootstrap.serverTime));
     const habitFrom = calendar.addCalendarDays(today, -8);
     const nutritionFrom = calendar.addCalendarDays(today, -7);
-    const paths = ["timers", "habits", `habit-logs?from=${habitFrom}&to=${today}`, "foods", "meals", `food-logs?from=${nutritionFrom}&to=${today}`, "nutrition-goal", "strength"];
+    const paths = ["timers", "habits", `habit-logs?from=${habitFrom}&to=${today}`, "foods", "meals", `food-logs?from=${nutritionFrom}&to=${today}`, "nutrition-goal", "strength", `habit-streaks?date=${today}`];
     const loaded = await loadConsistentSections(() => Promise.all(paths.map(path => request(`/api/${path}`))));
     const payloads = loaded.payloads;
     revision = loaded.revision;
-    const [timers, widgets, logs, foods, meals, foodLogData, nutritionGoal, strength] = payloads.map(payload => payload.data);
+    const [timers, widgets, logs, foods, meals, foodLogData, nutritionGoal, strength, streaks] = payloads.map(payload => payload.data);
+    window.__TEMPO_HABIT_STREAKS__ = streaks;
     return { schemaVersion: 14, timers, widgets, logs, foods, meals, foodLogs: foodLogData.foodLogs, recentFoodIds: foodLogData.recentFoodIds, recentMealIds: foodLogData.recentMealIds, nutritionGoal, strength, legacyDefaultsRemoved: true };
   };
   const loadBootstrap = async () => {
@@ -105,6 +106,7 @@ if (!privateMatch) {
   const saveState = (state, sections) => sectionQueue.save(state, sections);
   window.tempoServer = {
     saveState,
+    async getHabitStreaks(date) { return (await request(`/api/habit-streaks?date=${encodeURIComponent(date)}`)).data; },
     async getCardio() { return (await request("/api/cardio")).data; },
     async getCardioSession(id) { return (await request(`/api/cardio/sessions/${encodeURIComponent(id)}`)).data; },
     async deleteCardioSession(id) { return (await request(`/api/cardio/sessions/${encodeURIComponent(id)}`, { method: "DELETE" })).data; },
@@ -115,7 +117,11 @@ if (!privateMatch) {
     async getTrendDelta(cursor = null) { return (await request(`/api/trends${cursor == null ? "" : `?cursor=${encodeURIComponent(cursor)}`}`)).data; },
     async applyTrendDelta(delta) { return applyTrendDelta(await trendNamespace(), delta).catch(() => null); },
     async setSleepGoal(minutes, startTime) { return (await request("/api/sleep/goal", { method: "PUT", body: JSON.stringify({ minutes, startTime }) })).data; },
-    async updateHabitLog(date,habitId,record) { return mutationRequest(`/api/habit-logs/${encodeURIComponent(date)}/${encodeURIComponent(habitId)}`, "PUT", record); },
+    async updateHabitLog(date,habitId,record) {
+      const result = await mutationRequest(`/api/habit-logs/${encodeURIComponent(date)}/${encodeURIComponent(habitId)}`, "PUT", record);
+      window.dispatchEvent(new CustomEvent("tempo:habit-log-saved", { detail: { date } }));
+      return result;
+    },
     async addStrengthSet(sessionExerciseId, set) { return mutationRequest(`/api/strength/session-exercises/${encodeURIComponent(sessionExerciseId)}/sets`, "POST", set); },
     async updateStrengthSet(id, set) { return mutationRequest(`/api/strength/sets/${encodeURIComponent(id)}`, "PUT", set); },
     async deleteStrengthSet(id) { return mutationRequest(`/api/strength/sets/${encodeURIComponent(id)}`, "DELETE"); },
@@ -149,7 +155,7 @@ if (!privateMatch) {
     window.__TEMPO_BOOTSTRAP__ = bootstrap;
     window.__TEMPO_INITIAL_STATE__ = initialState;
     window.__TEMPO_PRIVATE_PATH__ = privatePath;
-    await import("./app.js?v=146");
+    await import("./app.js?v=151");
     document.documentElement.classList.remove("is-booting");
   } catch (error) {
     if (shouldReplaceMissingSpace(error.status, privatePath, rememberedPath)) {

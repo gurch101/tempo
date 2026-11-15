@@ -41,6 +41,7 @@ The Worker exposes:
 - `POST /api/spaces` to create a capability URL
 - `GET /api/bootstrap` and `GET|PUT /api/state` for the v13 UI read model and Settings editor
 - timer, habit, food, meal, nutrition, workout, mesocycle, and workout-session routes
+- `GET /api/habit-streaks?date=YYYY-MM-DD` returns each active habit's streak through the preceding day; cards combine this count with the selected day's record for immediate updates. The indexed query stops at the first missed scheduled day, and the browser loads only recent habit logs.
 
 Authenticated requests send `Authorization: Bearer <capability>` and mutations send the latest revision through `If-Match`. A stale mutation receives `412 Precondition Failed`; the browser reloads the authoritative snapshot and asks the user to repeat the edit.
 
