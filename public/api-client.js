@@ -70,8 +70,9 @@ if (!privateMatch) {
   const loadAppState = async bootstrap => {
     const calendar = createCalendar(bootstrap.timezone);
     const today = calendar.dayKey(new Date(bootstrap.serverTime));
-    const habitFrom = calendar.addCalendarDays(today, -8);
-    const nutritionFrom = calendar.addCalendarDays(today, -7);
+    const previousSunday = calendar.addCalendarDays(today, -calendar.weekdayForKey(today) - 7);
+    const habitFrom = previousSunday;
+    const nutritionFrom = previousSunday;
     const paths = ["timers", "habits", `habit-logs?from=${habitFrom}&to=${today}`, "foods", "meals", `food-logs?from=${nutritionFrom}&to=${today}`, "nutrition-goal", "strength", `habit-streaks?date=${today}`];
     const loaded = await loadConsistentSections(() => Promise.all(paths.map(path => request(`/api/${path}`))));
     const payloads = loaded.payloads;
@@ -155,7 +156,7 @@ if (!privateMatch) {
     window.__TEMPO_BOOTSTRAP__ = bootstrap;
     window.__TEMPO_INITIAL_STATE__ = initialState;
     window.__TEMPO_PRIVATE_PATH__ = privatePath;
-    await import("./app.js?v=151");
+    await import("./app.js?v=152");
     document.documentElement.classList.remove("is-booting");
   } catch (error) {
     if (shouldReplaceMissingSpace(error.status, privatePath, rememberedPath)) {

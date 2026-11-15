@@ -109,6 +109,7 @@ let hoveredRingItemId = null;
 let selectedRingItemId = null;
 let progressSummaryTab = "habits";
 let momentumFilter = "all";
+let momentumWeekOffset = 0;
 let foodLogDay = currentDayKey;
 let activeView = "timersView";
 let cardioData = null;
@@ -823,8 +824,13 @@ function renderWeeklyChart() {
   $("#momentumCardioSummary").hidden = momentumFilter !== "cardio" || !cardioGoal;
   $("#momentumSleepSummary").hidden = momentumFilter !== "sleep";
   const today = dayKey();
-  const sunday = addCalendarDays(today, -weekdayForKey(today));
+  const sunday = addCalendarDays(today, -weekdayForKey(today) + momentumWeekOffset * 7);
   const days = Array.from({ length: 7 }, (_, index) => addCalendarDays(sunday, index));
+  $("#momentumWeekLabel").textContent = momentumWeekOffset === 0 ? "THIS WEEK" : "LAST WEEK";
+  $("#momentumWeekRange").textContent = [sunday, days[6]].map(key => formatCalendarDate(key, { month: "short", day: "numeric", year: "numeric" })).join(" – ");
+  $("#momentumPreviousWeek").disabled = momentumWeekOffset === -1;
+  $("#momentumCurrentWeek").disabled = momentumWeekOffset === 0;
+  $("#momentumCardioWeekLabel").textContent = momentumWeekOffset === 0 ? "Zone 2 this week" : "Zone 2 last week";
   const cardioSecondsByDay = new Map(days.map(key => [key, 0]));
   if (cardioGoal) (cardioData.dailyZone2 || []).forEach(day => {
     if (cardioSecondsByDay.has(day.date)) cardioSecondsByDay.set(day.date, Math.max(0, Number(day.moderateSeconds) || 0));
@@ -3653,6 +3659,19 @@ $("#weeklyChart").addEventListener("click", event => {
   const day = event.target.closest("button[data-date]");
   if (!day || day.disabled || day.dataset.date > dayKey()) return;
   visibleDay = day.dataset.date;
+  renderTimers();
+});
+
+$("#momentumPreviousWeek").addEventListener("click", () => {
+  if (momentumWeekOffset === -1) return;
+  momentumWeekOffset = -1;
+  visibleDay = addCalendarDays(visibleDay, -7);
+  renderTimers();
+});
+
+$("#momentumCurrentWeek").addEventListener("click", () => {
+  momentumWeekOffset = 0;
+  visibleDay = dayKey();
   renderTimers();
 });
 

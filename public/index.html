@@ -14,7 +14,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="/styles.css?v=112" />
+    <link rel="stylesheet" href="/styles.css?v=113" />
   </head>
   <body>
     <div class="offline-banner" role="status">Tempo is offline. New changes are paused until you reconnect and reload.</div>
@@ -44,7 +44,7 @@
         <section id="timersView" class="view active" aria-labelledby="habitsHeading">
           <section class="weekly-panel" aria-labelledby="weeklyHeading">
             <div class="weekly-copy">
-              <p class="eyebrow">THIS WEEK</p>
+              <p class="eyebrow" id="momentumWeekLabel">THIS WEEK</p>
               <div class="heading-with-tooltip">
                 <h2 id="weeklyHeading">Momentum</h2>
                 <span class="info-tooltip"><button type="button" aria-label="About Momentum"><i data-lucide="info" aria-hidden="true">i</i></button><span role="tooltip">Your daily score is the average progress across habits, nutrition goals, cardio, and sleep.</span></span>
@@ -58,6 +58,11 @@
               </div>
             </div>
             <div class="weekly-chart-column">
+              <div class="momentum-week-navigation" aria-label="Momentum week navigation">
+                <button type="button" id="momentumPreviousWeek" aria-label="Previous week" title="Previous week"><i data-lucide="chevron-left" aria-hidden="true">←</i></button>
+                <span id="momentumWeekRange" aria-live="polite"></span>
+                <button type="button" id="momentumCurrentWeek" disabled aria-label="Return to this week" title="Return to this week"><i data-lucide="chevron-right" aria-hidden="true">→</i></button>
+              </div>
               <div class="momentum-nutrient-legend" id="momentumNutrientLegend" aria-label="Nutrition bar colors" hidden>
                 <span style="--nutrient-color:#ec5f3e"><i></i>Calories</span>
                 <span style="--nutrient-color:#d6941f"><i></i>Carbs</span>
@@ -66,7 +71,7 @@
                 <span style="--nutrient-color:#16a085"><i></i>Fibre</span>
               </div>
               <div class="momentum-cardio-summary" id="momentumCardioSummary" hidden>
-                <div class="momentum-zone2-progress" id="momentumCardioZone2" hidden><span><span>Zone 2 this week</span><strong id="momentumCardioProgress">0 / 0 min</strong></span><i role="progressbar" aria-label="Weekly Zone 2 cardio goal" aria-valuemin="0"><b id="momentumCardioProgressFill"></b></i></div>
+                <div class="momentum-zone2-progress" id="momentumCardioZone2" hidden><span><span id="momentumCardioWeekLabel">Zone 2 this week</span><strong id="momentumCardioProgress">0 / 0 min</strong></span><i role="progressbar" aria-label="Weekly Zone 2 cardio goal" aria-valuemin="0"><b id="momentumCardioProgressFill"></b></i></div>
               </div>
               <div class="momentum-sleep-summary" id="momentumSleepSummary" hidden><span><i class="sleep-duration-key"></i>Duration</span><span><i class="sleep-bedtime-key"></i>Bedtime met</span><strong id="momentumSleepProgress">0 / 0 nights</strong></div>
               <div class="weekly-chart" id="weeklyChart" aria-label="Daily completion scores from Sunday through Saturday"></div>
@@ -556,6 +561,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="https://unpkg.com/lucide@1.28.0/dist/umd/lucide.js" referrerpolicy="no-referrer"></script>
     <script src="/vendor/qrcode.js?v=1"></script>
-    <script type="module" src="/api-client.js?v=66"></script>
+    <script type="module" src="/api-client.js?v=67"></script>
   </body>
 </html>
