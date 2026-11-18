@@ -4,6 +4,7 @@ import { liveStepsPace } from "./cardio-metrics.js?v=1";
 import { pathForView, routeFromLocation } from "./routes.js";
 import { mergeSection } from "./state-sections.js?v=1";
 import { deltaPoints, periodDelta } from "./trend-delta.js?v=2";
+import { createHabitActivity } from "./habit-activity.js?v=3";
 
 const STATE_SCHEMA_VERSION = 14;
 const STORAGE_KEY = "tempo-state-v2";
@@ -91,6 +92,12 @@ const legacyDefaults = [
 ];
 
 let state = await loadState();
+const habitActivity = createHabitActivity(
+  $("#habitActivity"),
+  { dayKey, addCalendarDays, weekdayForKey, dateFromKey },
+  (from, to) => window.tempoServer.getHabitLogs(from, to),
+  () => state.widgets.map(habit => [habitLogKey(habit.id), habit.name])
+);
 let toastTimer;
 let persistencePending = false;
 let queuedPersistenceToast = "";
@@ -2223,6 +2230,7 @@ async function loadTrends() {
 }
 
 async function visitTrends() {
+  habitActivity.load();
   await loadTrends();
   if (activeView === "trendsView") renderTrends();
 }
@@ -4283,6 +4291,7 @@ function updateLiveTimers({ persistCheckpoint = false } = {}) {
     if (wasViewingToday) visibleDay = currentDay;
     foodLogDay = currentDay;
     countReset = resetTimerCountsForCurrentDay(currentDay);
+    if (activeView === "trendsView") habitActivity.load();
   }
   const changed = syncTimers();
   if (countReset || (persistCheckpoint && changed)) saveState("timers");
@@ -4304,6 +4313,7 @@ setInterval(() => {
   if (session) updateWorkoutCountdownUI(session);
 }, 250);
 window.addEventListener("tempo:habit-log-saved", event => {
+  if (activeView === "trendsView") habitActivity.load();
   // Editing the displayed day does not change its preceding streak. A save
   // that finishes after navigating to a later day can change that baseline.
   if (event.detail.date < visibleDay) {
@@ -4316,6 +4326,7 @@ window.addEventListener("tempo:saved-state", event => {
   const activeSession = state.strength.mesocycles.flatMap(meso => meso.sessions || []).find(session => session.id === activeStrengthSessionId);
   Object.entries(event.detail).forEach(([section, data]) => mergeSection(state, section, data));
   state = migrateState(state);
+  if (activeView === "trendsView" && ("habits" in event.detail || "habitLogs" in event.detail)) habitActivity.load();
   if (activeSession) {
     const savedSession = state.strength.mesocycles.flatMap(meso => meso.sessions || []).find(session => session.createdAt === activeSession.createdAt && session.name === activeSession.name);
     activeStrengthSessionId = savedSession?.id || null;

@@ -108,6 +108,7 @@ if (!privateMatch) {
   window.tempoServer = {
     saveState,
     async getHabitStreaks(date) { return (await request(`/api/habit-streaks?date=${encodeURIComponent(date)}`)).data; },
+    async getHabitLogs(from, to) { return (await request(`/api/habit-logs?${new URLSearchParams({ from, to })}`)).data; },
     async getCardio() { return (await request("/api/cardio")).data; },
     async getCardioSession(id) { return (await request(`/api/cardio/sessions/${encodeURIComponent(id)}`)).data; },
     async deleteCardioSession(id) { return (await request(`/api/cardio/sessions/${encodeURIComponent(id)}`, { method: "DELETE" })).data; },
@@ -156,7 +157,7 @@ if (!privateMatch) {
     window.__TEMPO_BOOTSTRAP__ = bootstrap;
     window.__TEMPO_INITIAL_STATE__ = initialState;
     window.__TEMPO_PRIVATE_PATH__ = privatePath;
-    await import("./app.js?v=154");
+    await import("./app.js?v=157");
     document.documentElement.classList.remove("is-booting");
   } catch (error) {
     if (shouldReplaceMissingSpace(error.status, privatePath, rememberedPath)) {

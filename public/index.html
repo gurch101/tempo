@@ -14,7 +14,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="/styles.css?v=117" />
+    <link rel="stylesheet" href="/styles.css?v=120" />
   </head>
   <body>
     <div class="offline-banner" role="status">Tempo is offline. New changes are paused until you reconnect and reload.</div>
@@ -203,6 +203,29 @@
           <div class="page-heading trends-page-heading">
             <div><h1 id="trendsHeading">Trends</h1></div>
           </div>
+          <section id="habitActivity" class="cardio-panel habit-activity" aria-labelledby="habitActivityHeading">
+            <div class="cardio-panel-heading">
+              <div><h2 id="habitActivityHeading">Habit activity</h2><p>Completed habits over the last 365 days</p></div>
+              <select id="habitActivityFilter" aria-label="Filter by habit" disabled><option value="">All habits</option></select>
+            </div>
+            <p id="habitActivityStatus" class="cardio-chart-empty" role="status">Loading habit activity…</p>
+            <div id="habitActivityCalendar" class="habit-activity-scroll" hidden></div>
+            <div id="habitActivityDetails" class="habit-activity-tooltip" role="tooltip" aria-live="polite" hidden></div>
+            <div id="habitActivityFooter" class="habit-activity-footer" hidden>
+              <div id="habitActivityCountLegend" class="habit-activity-legend" aria-label="Habit completion count">
+                <span>Completed</span>
+                <span class="habit-activity-cell level-0">0</span>
+                <span class="habit-activity-cell level-1">1</span>
+                <span class="habit-activity-cell level-2">2</span>
+                <span class="habit-activity-cell level-3">3</span>
+                <span class="habit-activity-cell level-4">4+</span>
+              </div>
+              <div id="habitActivitySingleLegend" class="habit-activity-legend habit-activity-single-legend" hidden>
+                <i class="habit-activity-cell level-0" aria-hidden="true"></i><span>No completion</span>
+                <i class="habit-activity-cell level-4" aria-hidden="true"></i><span>Completed</span>
+              </div>
+            </div>
+          </section>
           <div id="trendsContent" aria-live="polite"><div class="cardio-loading">Loading trends</div></div>
         </section>
 
@@ -562,6 +585,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="https://unpkg.com/lucide@1.28.0/dist/umd/lucide.js" referrerpolicy="no-referrer"></script>
     <script src="/vendor/qrcode.js?v=1"></script>
-    <script type="module" src="/api-client.js?v=69"></script>
+    <script type="module" src="/api-client.js?v=72"></script>
   </body>
 </html>

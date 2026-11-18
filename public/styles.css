@@ -292,3 +292,26 @@ dialog .dialog-header{display:flex;align-items:flex-start;justify-content:space-
 .cardio-steps-goal-actions{display:flex;align-items:center;gap:7px;flex:none}.cardio-steps-goal-actions button{flex:none}.cardio-steps-goal-actions button:disabled{cursor:default;opacity:.55;transform:none}.cardio-steps-refresh-button{width:36px;height:36px;padding:0}.cardio-steps-refresh-button .lucide{width:15px;height:15px}.cardio-steps-refresh-button.is-syncing .lucide{animation:health-sync-spin 1s linear infinite}@media(max-width:700px){.cardio-steps-goal-actions{flex-wrap:wrap;justify-content:flex-end}}
 
 .workout-notes-field{display:block;margin-top:16px}.workout-notes-field textarea{display:block;width:100%;min-height:88px;margin-top:7px;padding:12px;border:1px solid var(--line);border-radius:10px;color:var(--ink);background:white;font:inherit;font-size:13px;font-weight:400;letter-spacing:normal;text-transform:none;resize:vertical}.workout-notes-field textarea:focus{outline:2px solid var(--accent);outline-offset:2px}.workout-notes{margin-bottom:18px;padding:18px 20px;border:1px solid var(--line);border-radius:16px;background:var(--card)}.workout-notes h2{margin:0;font-size:14px}.workout-notes p{margin:9px 0 0;font-size:13px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+
+.habit-activity{position:relative;margin-bottom:18px}
+.habit-activity .cardio-panel-heading select{max-width:min(100%,19rem)}
+@media(max-width:600px){.habit-activity .cardio-panel-heading select{max-width:100%}}
+.habit-activity-scroll{overflow-x:auto;padding:3px 2px 6px}
+.habit-activity-grid{display:grid;grid-template-columns:28px repeat(var(--weeks),minmax(11px,1fr));grid-template-rows:15px repeat(7,auto);gap:3px;min-width:calc(42px + var(--weeks) * 14px);max-width:980px;padding-right:14px}
+.habit-activity-month,.habit-activity-weekday{color:var(--muted);font-size:9px;line-height:1;align-self:center}
+.habit-activity-month{grid-row:1;justify-self:start;white-space:nowrap}
+.habit-activity-weekday{grid-column:1}
+.habit-activity-cell{display:block;min-width:0;aspect-ratio:1;padding:0;border:1px solid rgba(34,34,30,.08);border-radius:3px;background:#efeee9}
+.habit-activity-cell.level-1{background:color-mix(in srgb,var(--accent) 30%,white)}
+.habit-activity-cell.level-2{background:color-mix(in srgb,var(--accent) 50%,white)}
+.habit-activity-cell.level-3{background:color-mix(in srgb,var(--accent) 75%,white)}
+.habit-activity-cell.level-4{background:var(--accent)}
+button.habit-activity-cell{cursor:pointer;scroll-margin-inline:3px}
+button.habit-activity-cell:is(:hover,:focus-visible,[aria-pressed="true"]){outline:1px solid var(--ink);outline-offset:1px;z-index:1}
+.habit-activity-footer{display:flex;justify-content:flex-end;margin-top:12px}
+.habit-activity-tooltip{position:absolute;z-index:5;width:max-content;max-width:min(280px,calc(100% - 28px));padding:9px 11px;border-radius:8px;background:#171717;color:#fff;box-shadow:0 4px 14px #0003;font-size:11px;line-height:1.4;overflow:auto;overflow-wrap:anywhere;overscroll-behavior:contain}
+.habit-activity-tooltip ul{margin:5px 0 0;padding-left:15px;color:#eee}
+.habit-activity-tooltip li + li{margin-top:3px}
+.habit-activity-legend{display:flex;gap:4px;align-items:center;color:var(--muted);font-size:9px}
+.habit-activity-legend .habit-activity-cell{display:grid;place-items:center;width:19px;color:var(--ink);font-weight:700}
+.habit-activity-single-legend span + i{margin-left:8px}
